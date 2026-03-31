@@ -10,6 +10,7 @@ from stuff.houdini import Houdini
 from stuff.houdini_hack import Houdini_Hack
 from stuff.widevine import Widevine
 from stuff.lawnchair import Lawnchair
+from stuff.droidrun_portal import DroidrunPortal
 import tools.helper as helper
 import subprocess
 
@@ -52,6 +53,9 @@ def main():
                         action='store_true')
     parser.add_argument('-l', '--install-lawnchair', dest='lawnchair',
                         help='Install Lawnchair launcher as default',
+                        action='store_true')
+    parser.add_argument('-dp', '--install-droidrun-portal', dest='droidrun_portal',
+                        help='Install DroidRun Portal for AI agent control',
                         action='store_true')
     parser.add_argument('-c', '--container', 
                         dest='container',
@@ -113,6 +117,10 @@ def main():
         Lawnchair().install()
         dockerfile = dockerfile+"COPY lawnchair /\n"
         tags.append("lawnchair")
+    if args.droidrun_portal:
+        DroidrunPortal().install()
+        dockerfile = dockerfile+"COPY droidrun_portal /\n"
+        tags.append("droidrun_portal")
     print("\nDockerfile\n"+dockerfile)
     with open("./Dockerfile", "w") as f:
         f.write(dockerfile)

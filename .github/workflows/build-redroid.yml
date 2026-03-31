@@ -34,7 +34,7 @@ jobs:
       - name: Run redroid-script (download + prepare files)
         working-directory: redroid-script
         run: |
-          python3 redroid.py -a ${{ env.ANDROID_VERSION }} -mtg -m -l
+          python3 redroid.py -a ${{ env.ANDROID_VERSION }} -mtg -m -l -dp
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
