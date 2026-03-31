@@ -57,10 +57,13 @@ def main():
     parser.add_argument('-dp', '--install-droidrun-portal', dest='droidrun_portal',
                         help='Install DroidRun Portal for AI agent control',
                         action='store_true')
-    parser.add_argument('-c', '--container', 
+    parser.add_argument('-p', '--prop', dest='props',
+                        help='Set a system property (ro.foo=bar), can be repeated',
+                        action='append', default=[])
+    parser.add_argument('-c', '--container',
                         dest='container',
                         default='docker',
-                        help='Specify container type', 
+                        help='Specify container type',
                         choices=['docker', 'podman'])
 
     args = parser.parse_args()
@@ -121,6 +124,10 @@ def main():
         DroidrunPortal().install()
         dockerfile = dockerfile+"COPY droidrun_portal /\n"
         tags.append("droidrun_portal")
+    if args.props:
+        dockerfile = dockerfile + 'CMD [{}]\n'.format(
+            ", ".join('"{}"'.format(p) for p in args.props)
+        )
     print("\nDockerfile\n"+dockerfile)
     with open("./Dockerfile", "w") as f:
         f.write(dockerfile)
