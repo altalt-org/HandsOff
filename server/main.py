@@ -2,33 +2,28 @@
 """
 HandsOff API Server
 
-Connects to a redroid container and exposes DroidRun agent control
+Connects to a redroid container and exposes device control
 plus raw ADB commands over a REST API.
 """
 
 import asyncio
 import base64
 import os
+import subprocess
 from contextlib import asynccontextmanager
 
 from adbutils import adb
-from droidrun import (
-    AndroidDriver,
-    DeviceConfig,
-    DroidAgent,
-    DroidConfig,
-)
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 DEVICE_SERIAL = os.environ.get("DEVICE_SERIAL", "localhost:5555")
 
-
-class RunGoalRequest(BaseModel):
-    goal: str
-    llm_provider: str = "anthropic"
-    llm_model: str = "claude-sonnet-4-20250514"
-    timeout: int = 300
+# Key codes for common buttons
+KEYCODES = {
+    "home": 3, "back": 4, "enter": 66, "recent": 187,
+    "volume_up": 24, "volume_down": 25, "power": 26,
+    "tab": 61, "delete": 67, "menu": 82,
+}
 
 
 class TapRequest(BaseModel):
@@ -63,31 +58,11 @@ class StartAppRequest(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Connect to the device on startup. Portal is pre-installed in the image."""
-    # Ensure ADB server knows about the device
-    import subprocess
     subprocess.run(["adb", "connect", DEVICE_SERIAL], capture_output=True)
-
-    sync_device = adb.device(DEVICE_SERIAL)
-    print(f"Connected to ADB device: {sync_device.serial}")
-
-    # Create a shared AndroidDriver — retry a few times as the async ADB
-    # connection can be flaky right after adb connect
-    driver = AndroidDriver(DeviceConfig(serial=DEVICE_SERIAL, use_tcp=True))
-    for attempt in range(5):
-        try:
-            await driver.connect()
-            print("AndroidDriver connected")
-            break
-        except Exception as e:
-            print(f"Driver connect attempt {attempt+1}/5 failed: {e}")
-            await asyncio.sleep(3)
-    else:
-        print("Warning: AndroidDriver failed to connect, direct device actions will be unavailable")
-    app.state.driver = driver
-    app.state.sync_device = sync_device
-
+    device = adb.device(DEVICE_SERIAL)
+    print(f"Connected to ADB device: {device.serial}")
+    app.state.device = device
     yield
-
     print("Shutting down...")
 
 
@@ -104,91 +79,75 @@ async def health():
 
 
 # ──────────────────────────────────────────────
-# DroidRun Agent (AI goal execution)
-# ──────────────────────────────────────────────
-
-@app.post("/agent/run")
-async def agent_run(req: RunGoalRequest):
-    """Execute an AI agent goal on the device."""
-    config = DroidConfig(
-        device=DeviceConfig(serial=DEVICE_SERIAL, use_tcp=True),
-    )
-    agent = DroidAgent(
-        goal=req.goal,
-        config=config,
-    )
-    try:
-        result = await asyncio.wait_for(agent.run(), timeout=req.timeout)
-        return {
-            "success": result.success,
-            "reason": result.reason,
-            "steps": result.steps,
-        }
-    except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="Agent timed out")
-
-
-# ──────────────────────────────────────────────
-# Direct device actions
+# Device actions (via adb shell commands)
 # ──────────────────────────────────────────────
 
 @app.get("/device/screenshot")
 async def screenshot():
     """Take a screenshot, returned as base64 PNG."""
-    driver: AndroidDriver = app.state.driver
-    img_bytes = await driver.screenshot()
-    return {"image": base64.b64encode(img_bytes).decode()}
+    device = app.state.device
+    png = device.shell("screencap -p", encoding=None)
+    return {"image": base64.b64encode(png).decode()}
 
 
 @app.get("/device/ui-tree")
 async def ui_tree():
-    """Get the current UI accessibility tree."""
-    driver: AndroidDriver = app.state.driver
-    tree = await driver.get_ui_tree()
-    return {"tree": tree}
+    """Get the UI accessibility tree via DroidRun Portal content provider."""
+    device = app.state.device
+    result = device.shell(
+        'content query --uri content://com.droidrun.portal/state'
+    )
+    return {"tree": result}
 
 
 @app.post("/device/tap")
 async def tap(req: TapRequest):
-    driver: AndroidDriver = app.state.driver
-    await driver.tap(req.x, req.y)
+    device = app.state.device
+    device.shell(f"input tap {req.x} {req.y}")
     return {"status": "ok"}
 
 
 @app.post("/device/swipe")
 async def swipe(req: SwipeRequest):
-    driver: AndroidDriver = app.state.driver
-    await driver.swipe(req.start_x, req.start_y, req.end_x, req.end_y, req.duration)
+    device = app.state.device
+    device.shell(
+        f"input swipe {req.start_x} {req.start_y} {req.end_x} {req.end_y} {req.duration}"
+    )
     return {"status": "ok"}
 
 
 @app.post("/device/input-text")
 async def input_text(req: InputTextRequest):
-    driver: AndroidDriver = app.state.driver
-    await driver.input_text(req.text)
+    device = app.state.device
+    # Escape special characters for adb shell input
+    escaped = req.text.replace("\\", "\\\\").replace(" ", "%s").replace("'", "\\'").replace('"', '\\"')
+    device.shell(f"input text '{escaped}'")
     return {"status": "ok"}
 
 
 @app.post("/device/press-button")
 async def press_button(button: str):
     """Press a button: home, back, enter, recent, volume_up, volume_down, power."""
-    driver: AndroidDriver = app.state.driver
-    await driver.press_button(button)
+    device = app.state.device
+    keycode = KEYCODES.get(button)
+    if keycode is None:
+        raise HTTPException(status_code=400, detail=f"Unknown button: {button}. Available: {list(KEYCODES.keys())}")
+    device.shell(f"input keyevent {keycode}")
     return {"status": "ok"}
 
 
 @app.post("/device/start-app")
 async def start_app(req: StartAppRequest):
-    driver: AndroidDriver = app.state.driver
-    await driver.start_app(req.package)
+    device = app.state.device
+    device.shell(f"monkey -p {req.package} -c android.intent.category.LAUNCHER 1")
     return {"status": "ok"}
 
 
 @app.get("/device/apps")
 async def list_apps():
-    driver: AndroidDriver = app.state.driver
-    apps = await driver.get_apps()
-    return {"apps": apps}
+    device = app.state.device
+    packages = device.list_packages()
+    return {"apps": packages}
 
 
 # ──────────────────────────────────────────────
@@ -198,7 +157,7 @@ async def list_apps():
 @app.post("/adb/shell")
 async def adb_shell(req: ShellRequest):
     """Run a raw ADB shell command."""
-    device = app.state.sync_device
+    device = app.state.device
     try:
         output = device.shell(req.command)
         return {"output": output}
@@ -209,7 +168,7 @@ async def adb_shell(req: ShellRequest):
 @app.post("/adb/install")
 async def adb_install(req: InstallAppRequest):
     """Install an APK from a path on the server."""
-    device = app.state.sync_device
+    device = app.state.device
     try:
         device.install(req.apk_path)
         return {"status": "ok"}
@@ -220,7 +179,7 @@ async def adb_install(req: InstallAppRequest):
 @app.get("/adb/packages")
 async def adb_packages():
     """List installed packages."""
-    device = app.state.sync_device
+    device = app.state.device
     packages = device.list_packages()
     return {"packages": packages}
 
