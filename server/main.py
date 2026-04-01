@@ -12,14 +12,12 @@ import os
 from contextlib import asynccontextmanager
 
 from adbutils import adb
-from async_adbutils import AdbClient
 from droidrun import (
     AndroidDriver,
     DeviceConfig,
     DroidAgent,
     DroidConfig,
 )
-from droidrun.portal import setup_portal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -64,30 +62,18 @@ class StartAppRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Connect to the device and set up DroidRun Portal on startup."""
-    # Connect ADB to the redroid container
+    """Connect to the device on startup. Portal is pre-installed in the image."""
+    # Ensure ADB server knows about the device
+    import subprocess
+    subprocess.run(["adb", "connect", DEVICE_SERIAL], capture_output=True)
+
     sync_device = adb.device(DEVICE_SERIAL)
     print(f"Connected to ADB device: {sync_device.serial}")
-
-    # Set up DroidRun Portal (install APK, enable accessibility service)
-    async_client = AdbClient()
-    async_devices = await async_client.list()
-    async_device = None
-    for d in async_devices:
-        if d.serial == DEVICE_SERIAL:
-            async_device = d
-            break
-
-    if async_device:
-        print("Setting up DroidRun Portal...")
-        await setup_portal(async_device)
-        print("DroidRun Portal ready")
-    else:
-        print(f"Warning: could not find async device {DEVICE_SERIAL}")
 
     # Create a shared AndroidDriver
     driver = AndroidDriver(DeviceConfig(serial=DEVICE_SERIAL, use_tcp=True))
     await driver.connect()
+    print("AndroidDriver connected")
     app.state.driver = driver
     app.state.sync_device = sync_device
 
