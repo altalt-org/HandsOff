@@ -1,0 +1,4 @@
+-e ../droidrun-pkg
+fastapi>=0.115.0
+uvicorn>=0.34.0
+adbutils>=2.0.0

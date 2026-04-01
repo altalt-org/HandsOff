@@ -11,6 +11,13 @@ services:
       - androidboot.redroid_height=2400
       - androidboot.redroid_dpi=420
       - androidboot.redroid_fps=30
+      - androidboot.redroid_gpu_mode=guest
+      - androidboot.use_memfd=1
+      - ro.product.model=SM-T970
+      - ro.product.brand=Samsung
+      - ro.product.manufacturer=samsung
+      - ro.product.device=gts7lwifi
+      - ro.product.name=gts7lwifi
 
   server:
     build: ./server
