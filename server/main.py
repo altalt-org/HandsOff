@@ -13,6 +13,7 @@ import subprocess
 from contextlib import asynccontextmanager
 
 from adbutils import adb
+from droidrun import DroidAgent, DroidConfig, DeviceConfig
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -24,6 +25,11 @@ KEYCODES = {
     "volume_up": 24, "volume_down": 25, "power": 26,
     "tab": 61, "delete": 67, "menu": 82,
 }
+
+
+class RunGoalRequest(BaseModel):
+    goal: str
+    timeout: int = 300
 
 
 class TapRequest(BaseModel):
@@ -76,6 +82,31 @@ app = FastAPI(title="HandsOff API", lifespan=lifespan)
 @app.get("/health")
 async def health():
     return {"status": "ok", "device": DEVICE_SERIAL}
+
+
+# ──────────────────────────────────────────────
+# DroidRun Agent (AI goal execution)
+# ──────────────────────────────────────────────
+
+@app.post("/agent/run")
+async def agent_run(req: RunGoalRequest):
+    """Execute a natural language goal on the device using DroidRun AI agent."""
+    config = DroidConfig(
+        device=DeviceConfig(serial=DEVICE_SERIAL, use_tcp=True),
+    )
+    agent = DroidAgent(
+        goal=req.goal,
+        config=config,
+    )
+    try:
+        result = await asyncio.wait_for(agent.run(), timeout=req.timeout)
+        return {
+            "success": result.success,
+            "reason": result.reason,
+            "steps": result.steps,
+        }
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Agent timed out")
 
 
 # ──────────────────────────────────────────────
