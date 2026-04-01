@@ -1,0 +1,27 @@
+services:
+  redroid:
+    image: ghcr.io/altalt-org/redroid-custom:latest
+    privileged: true
+    ports:
+      - "5555:5555"
+    volumes:
+      - redroid-data:/data
+    command:
+      - androidboot.redroid_width=1080
+      - androidboot.redroid_height=2400
+      - androidboot.redroid_dpi=420
+      - androidboot.redroid_fps=30
+
+  server:
+    build: ./server
+    ports:
+      - "8000:8000"
+    environment:
+      - DEVICE_SERIAL=redroid:5555
+    depends_on:
+      - redroid
+    # Wait for redroid to boot before starting
+    restart: on-failure
+
+volumes:
+  redroid-data:

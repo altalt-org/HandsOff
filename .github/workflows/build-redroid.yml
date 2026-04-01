@@ -34,9 +34,12 @@ jobs:
       - name: Run redroid-script (download + prepare files)
         working-directory: redroid-script
         run: |
-          python3 redroid.py -a ${{ env.ANDROID_VERSION }} -mtg -m -dp \
+          python3 redroid.py -a ${{ env.ANDROID_VERSION }} -mtg -m -l -dp \
             -p ro.product.model=SM-T970 \
-            -p ro.product.brand=Samsung
+            -p ro.product.brand=Samsung \
+            -p ro.product.manufacturer=samsung \
+            -p ro.product.device=gts7lwifi \
+            -p ro.product.name=gts7lwifi
 
       - name: Log in to GHCR
         uses: docker/login-action@v3

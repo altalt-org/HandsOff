@@ -1,6 +1,7 @@
 import os
 import shutil
 from stuff.general import General
+from stuff.gen_lawnchair_prefs import generate_preferences
 from tools.helper import bcolors, get_download_dir, print_color
 
 
@@ -12,10 +13,13 @@ class Lawnchair(General):
     extract_to = "/tmp/lawnchair_unpack"
     copy_dir = "./lawnchair"
 
-    # Android init.rc snippet to set Lawnchair as default launcher on boot
+    # Install Lawnchair as a regular app on first boot (same pattern as DroidRun Portal),
+    # set it as default launcher, then copy pre-configured preferences.
     init_rc_content = """
 on property:sys.boot_completed=1
+    exec -- /system/bin/sh -c "if [ ! -e /data/data/app.lawnchair ] ; then pm install -g /system/etc/lawnchair/Lawnchair.apk ; fi"
     exec -- /system/bin/cmd package set-home-activity "app.lawnchair/com.android.launcher3.Launcher"
+    exec -- /system/bin/sh -c "mkdir -p /data/data/app.lawnchair/files/datastore && cp /system/etc/lawnchair/preferences.preferences_pb /data/data/app.lawnchair/files/datastore/ && chown -R $(stat -c '%u:%g' /data/data/app.lawnchair) /data/data/app.lawnchair/files"
 """
 
     def download(self):
@@ -30,12 +34,19 @@ on property:sys.boot_completed=1
         if os.path.exists(self.copy_dir):
             shutil.rmtree(self.copy_dir)
 
-        # Place APK as system priv-app
-        priv_app_dir = os.path.join(self.copy_dir, "system", "priv-app", "Lawnchair")
-        os.makedirs(priv_app_dir, exist_ok=True)
-        shutil.copyfile(self.dl_file_name, os.path.join(priv_app_dir, "Lawnchair.apk"))
+        # Store APK and preferences in /system/etc/lawnchair/
+        lawnchair_dir = os.path.join(self.copy_dir, "system", "etc", "lawnchair")
+        os.makedirs(lawnchair_dir, exist_ok=True)
+        shutil.copyfile(self.dl_file_name, os.path.join(lawnchair_dir, "Lawnchair.apk"))
 
-        # Add init.rc to set as default launcher on every boot
+        # Generate pre-configured preferences (no search bar, no smartspace)
+        prefs_path = os.path.join(lawnchair_dir, "preferences.preferences_pb")
+        prefs_data = generate_preferences()
+        with open(prefs_path, "wb") as f:
+            f.write(prefs_data)
+        print_color("Generated Lawnchair preferences ({} bytes)".format(len(prefs_data)), bcolors.GREEN)
+
+        # Add init.rc to install, set as default, and apply preferences on boot
         init_dir = os.path.join(self.copy_dir, "system", "etc", "init")
         os.makedirs(init_dir, exist_ok=True)
         init_rc_path = os.path.join(init_dir, "lawnchair.rc")
