@@ -11,6 +11,7 @@ from stuff.houdini_hack import Houdini_Hack
 from stuff.widevine import Widevine
 from stuff.lawnchair import Lawnchair
 from stuff.droidrun_portal import DroidrunPortal
+from stuff.skip_setup import SkipSetup
 import tools.helper as helper
 import subprocess
 
@@ -56,6 +57,9 @@ def main():
                         action='store_true')
     parser.add_argument('-dp', '--install-droidrun-portal', dest='droidrun_portal',
                         help='Install DroidRun Portal for AI agent control',
+                        action='store_true')
+    parser.add_argument('-ss', '--skip-setup', dest='skip_setup',
+                        help='Skip Android setup wizard on first boot',
                         action='store_true')
     parser.add_argument('-p', '--prop', dest='props',
                         help='Set a system property (ro.foo=bar), can be repeated',
@@ -124,6 +128,9 @@ def main():
         DroidrunPortal().install()
         dockerfile = dockerfile+"COPY droidrun_portal /\n"
         tags.append("droidrun_portal")
+    if args.skip_setup:
+        SkipSetup().install()
+        dockerfile = dockerfile+"COPY skip_setup /\n"
     if args.props:
         dockerfile = dockerfile + 'CMD [{}]\n'.format(
             ", ".join('"{}"'.format(p) for p in args.props)

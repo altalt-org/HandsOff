@@ -34,7 +34,7 @@ jobs:
       - name: Run redroid-script (download + prepare files)
         working-directory: redroid-script
         run: |
-          python3 redroid.py -a ${{ env.ANDROID_VERSION }} -mtg -m -l -dp \
+          python3 redroid.py -a ${{ env.ANDROID_VERSION }} -mtg -m -l -dp -ss \
             -p ro.product.model=SM-T970 \
             -p ro.product.brand=Samsung \
             -p ro.product.manufacturer=samsung \
