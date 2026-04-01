@@ -70,10 +70,19 @@ async def lifespan(app: FastAPI):
     sync_device = adb.device(DEVICE_SERIAL)
     print(f"Connected to ADB device: {sync_device.serial}")
 
-    # Create a shared AndroidDriver
+    # Create a shared AndroidDriver — retry a few times as the async ADB
+    # connection can be flaky right after adb connect
     driver = AndroidDriver(DeviceConfig(serial=DEVICE_SERIAL, use_tcp=True))
-    await driver.connect()
-    print("AndroidDriver connected")
+    for attempt in range(5):
+        try:
+            await driver.connect()
+            print("AndroidDriver connected")
+            break
+        except Exception as e:
+            print(f"Driver connect attempt {attempt+1}/5 failed: {e}")
+            await asyncio.sleep(3)
+    else:
+        print("Warning: AndroidDriver failed to connect, direct device actions will be unavailable")
     app.state.driver = driver
     app.state.sync_device = sync_device
 
