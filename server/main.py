@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import logging
 import os
 import subprocess
@@ -34,6 +35,7 @@ from droidrun.tools.filters import ConciseFilter
 from droidrun.tools.formatters import IndexedFormatter
 from droidrun.portal import ensure_portal_ready
 from async_adbutils import adb
+from PIL import Image as PILImage
 
 logger = logging.getLogger("handsoff")
 logging.basicConfig(level=logging.INFO)
@@ -242,9 +244,21 @@ async def screenshot() -> list[TextContent | ImageContent]:
     so you can see visual details the accessibility tree doesn't capture."""
     driver, _ = await _ensure_ready()
     png_bytes = await driver.screenshot()
-    b64 = base64.b64encode(png_bytes).decode("ascii")
+
+    # Resize and compress to JPEG to stay within Claude Code's MCP token limits.
+    # Claude Code treats ImageContent base64 as text tokens, so large PNGs
+    # easily exceed the default 25k token limit.
+    img = PILImage.open(io.BytesIO(png_bytes))
+    max_height = 800
+    if img.height > max_height:
+        ratio = max_height / img.height
+        img = img.resize((int(img.width * ratio), max_height), PILImage.LANCZOS)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=60)
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
     return [
-        ImageContent(type="image", data=b64, mimeType="image/png"),
+        ImageContent(type="image", data=b64, mimeType="image/jpeg"),
     ]
 
 
