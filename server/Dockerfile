@@ -5,10 +5,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py .
+# droidrun-pkg를 먼저 설치 (로컬 패키지, build context 루트에서 복사)
+COPY droidrun-pkg /droidrun-pkg
+RUN pip install --no-cache-dir /droidrun-pkg
+
+COPY server/requirements.txt .
+RUN grep -v 'droidrun-pkg' requirements.txt | pip install --no-cache-dir -r /dev/stdin
+
+COPY server/main.py .
 
 EXPOSE 8000
 
