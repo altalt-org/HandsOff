@@ -6,7 +6,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# droidrun-pkg를 먼저 설치 (로컬 패키지, build context 루트에서 복사)
 COPY droidrun-pkg /droidrun-pkg
 RUN pip install --no-cache-dir /droidrun-pkg
 
