@@ -42,6 +42,7 @@ logging.basicConfig(level=logging.INFO)
 
 DEVICE_SERIAL = os.environ.get("DEVICE_SERIAL", "localhost:5555")
 USE_TCP = os.environ.get("DROIDRUN_USE_TCP", "true").lower() in ("1", "true", "yes")
+MCP_PORT = int(os.environ.get("MCP_PORT", "8001"))
 
 # ── Global state ─────────────────────────────────────────────────────────
 # Initialized lazily on first tool call via _ensure_ready().
@@ -58,6 +59,8 @@ mcp = FastMCP(
         "Android device control server. Read the droidrun://instructions "
         "resource FIRST to understand how to use the tools effectively."
     ),
+    host="0.0.0.0",
+    port=MCP_PORT,
 )
 
 
