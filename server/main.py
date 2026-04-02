@@ -63,16 +63,36 @@ class StartAppRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Connect to the device on startup. Portal is pre-installed in the image."""
-    subprocess.run(["adb", "connect", DEVICE_SERIAL], capture_output=True)
-    device = adb.device(DEVICE_SERIAL)
-    print(f"Connected to ADB device: {device.serial}")
-    app.state.device = device
+    app.state.device = None
+    result = subprocess.run(["adb", "connect", DEVICE_SERIAL], capture_output=True, text=True)
+    if "connected" in result.stdout:
+        app.state.device = adb.device(DEVICE_SERIAL)
+        print(f"Connected to ADB device: {DEVICE_SERIAL}")
+    else:
+        print(f"ADB connect failed at startup (redroid may still be booting): {result.stdout.strip()}")
     yield
     print("Shutting down...")
 
 
 app = FastAPI(title="HandsOff API", lifespan=lifespan)
+
+
+def get_device():
+    """Return a live ADB device, reconnecting if necessary."""
+    device = get_device()
+    if device is not None:
+        try:
+            device.shell("echo ok")
+            return device
+        except Exception:
+            app.state.device = None
+
+    result = subprocess.run(["adb", "connect", DEVICE_SERIAL], capture_output=True, text=True)
+    if "connected" not in result.stdout and "already connected" not in result.stdout:
+        raise HTTPException(status_code=503, detail="Android device not ready, try again shortly")
+
+    app.state.device = adb.device(DEVICE_SERIAL)
+    return app.state.device
 
 
 # ──────────────────────────────────────────────
@@ -81,7 +101,8 @@ app = FastAPI(title="HandsOff API", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "device": DEVICE_SERIAL}
+    connected = app.state.device is not None
+    return {"status": "ok", "device": DEVICE_SERIAL, "connected": connected}
 
 
 # ──────────────────────────────────────────────
@@ -116,7 +137,7 @@ async def agent_run(req: RunGoalRequest):
 @app.get("/device/screenshot")
 async def screenshot():
     """Take a screenshot, returned as base64 PNG."""
-    device = app.state.device
+    device = get_device()
     png = device.shell("screencap -p", encoding=None)
     return {"image": base64.b64encode(png).decode()}
 
@@ -124,7 +145,7 @@ async def screenshot():
 @app.get("/device/ui-tree")
 async def ui_tree():
     """Get the UI accessibility tree via DroidRun Portal content provider."""
-    device = app.state.device
+    device = get_device()
     result = device.shell(
         'content query --uri content://com.droidrun.portal/state'
     )
@@ -133,14 +154,14 @@ async def ui_tree():
 
 @app.post("/device/tap")
 async def tap(req: TapRequest):
-    device = app.state.device
+    device = get_device()
     device.shell(f"input tap {req.x} {req.y}")
     return {"status": "ok"}
 
 
 @app.post("/device/swipe")
 async def swipe(req: SwipeRequest):
-    device = app.state.device
+    device = get_device()
     device.shell(
         f"input swipe {req.start_x} {req.start_y} {req.end_x} {req.end_y} {req.duration}"
     )
@@ -149,7 +170,7 @@ async def swipe(req: SwipeRequest):
 
 @app.post("/device/input-text")
 async def input_text(req: InputTextRequest):
-    device = app.state.device
+    device = get_device()
     # Escape special characters for adb shell input
     escaped = req.text.replace("\\", "\\\\").replace(" ", "%s").replace("'", "\\'").replace('"', '\\"')
     device.shell(f"input text '{escaped}'")
@@ -159,7 +180,7 @@ async def input_text(req: InputTextRequest):
 @app.post("/device/press-button")
 async def press_button(button: str):
     """Press a button: home, back, enter, recent, volume_up, volume_down, power."""
-    device = app.state.device
+    device = get_device()
     keycode = KEYCODES.get(button)
     if keycode is None:
         raise HTTPException(status_code=400, detail=f"Unknown button: {button}. Available: {list(KEYCODES.keys())}")
@@ -169,14 +190,14 @@ async def press_button(button: str):
 
 @app.post("/device/start-app")
 async def start_app(req: StartAppRequest):
-    device = app.state.device
+    device = get_device()
     device.shell(f"monkey -p {req.package} -c android.intent.category.LAUNCHER 1")
     return {"status": "ok"}
 
 
 @app.get("/device/apps")
 async def list_apps():
-    device = app.state.device
+    device = get_device()
     packages = device.list_packages()
     return {"apps": packages}
 
@@ -188,7 +209,7 @@ async def list_apps():
 @app.post("/adb/shell")
 async def adb_shell(req: ShellRequest):
     """Run a raw ADB shell command."""
-    device = app.state.device
+    device = get_device()
     try:
         output = device.shell(req.command)
         return {"output": output}
@@ -199,7 +220,7 @@ async def adb_shell(req: ShellRequest):
 @app.post("/adb/install")
 async def adb_install(req: InstallAppRequest):
     """Install an APK from a path on the server."""
-    device = app.state.device
+    device = get_device()
     try:
         device.install(req.apk_path)
         return {"status": "ok"}
@@ -210,7 +231,7 @@ async def adb_install(req: InstallAppRequest):
 @app.get("/adb/packages")
 async def adb_packages():
     """List installed packages."""
-    device = app.state.device
+    device = get_device()
     packages = device.list_packages()
     return {"packages": packages}
 
