@@ -36,6 +36,7 @@ from droidrun.tools.formatters import IndexedFormatter
 from droidrun.portal import ensure_portal_ready
 from async_adbutils import adb
 from PIL import Image as PILImage
+import docker
 
 logger = logging.getLogger("handsoff")
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +44,7 @@ logging.basicConfig(level=logging.INFO)
 DEVICE_SERIAL = os.environ.get("DEVICE_SERIAL", "localhost:5555")
 USE_TCP = os.environ.get("DROIDRUN_USE_TCP", "true").lower() in ("1", "true", "yes")
 PORT = int(os.environ.get("PORT", "8000"))
+REDROID_CONTAINER = os.environ.get("REDROID_CONTAINER", "redroid")
 
 # ── Instructions ─────────────────────────────────────────────────────────
 
@@ -97,6 +99,11 @@ To tap the Wi-Fi switch, call `click(index=1)`.
 - `list_apps` — List installed apps and their package names
 - `wait(duration?)` — Wait for animations/loading (duration in seconds, default 1.0)
 - `device_health` — Check device connection health
+
+### Power Control
+- `restart_device` — Restart the device (like rebooting a phone, ~15-20s downtime)
+- `power_off` — Shut down the device
+- `power_on` — Turn on a powered-off device (~15-20s boot time)
 
 ### Low-level ADB
 - `adb_shell(command)` — Run a raw ADB shell command
@@ -457,6 +464,73 @@ async def device_health() -> str:
         return f"Connected: {DEVICE_SERIAL}\nBuild: {output.strip()}"
     except Exception as e:
         return f"Device error: {e}"
+
+
+# ── Power control tools ──────────────────────────────────────────────────
+
+def _reset_device_state():
+    """Reset global device state so the next tool call re-initializes."""
+    global _driver, _state_provider, _device_obj, _ui, _ready
+    _driver = None
+    _state_provider = None
+    _device_obj = None
+    _ui = None
+    _ready = False
+
+
+def _get_docker_client():
+    """Get a Docker client connected to the host Docker socket."""
+    return docker.DockerClient(base_url="unix:///var/run/docker.sock")
+
+
+@mcp.tool()
+async def restart_device() -> str:
+    """Restart the Android device (equivalent to rebooting a phone).
+    The device will be unavailable for ~15-20 seconds while it reboots."""
+    try:
+        client = _get_docker_client()
+        container = client.containers.get(REDROID_CONTAINER)
+        _reset_device_state()
+        container.restart(timeout=10)
+        await asyncio.sleep(15)  # Wait for Android to boot
+        return "Device restarted successfully. Call get_device_state to verify."
+    except docker.errors.NotFound:
+        return f"Error: container '{REDROID_CONTAINER}' not found"
+    except Exception as e:
+        return f"Error restarting device: {e}"
+
+
+@mcp.tool()
+async def power_off() -> str:
+    """Power off the Android device (equivalent to shutting down a phone).
+    The device will be unavailable until power_on is called."""
+    try:
+        client = _get_docker_client()
+        container = client.containers.get(REDROID_CONTAINER)
+        _reset_device_state()
+        container.stop(timeout=10)
+        return "Device powered off."
+    except docker.errors.NotFound:
+        return f"Error: container '{REDROID_CONTAINER}' not found"
+    except Exception as e:
+        return f"Error powering off device: {e}"
+
+
+@mcp.tool()
+async def power_on() -> str:
+    """Power on the Android device (equivalent to turning on a phone).
+    The device will take ~15-20 seconds to boot."""
+    try:
+        client = _get_docker_client()
+        container = client.containers.get(REDROID_CONTAINER)
+        container.start()
+        _reset_device_state()
+        await asyncio.sleep(15)  # Wait for Android to boot
+        return "Device powered on. Call get_device_state to verify."
+    except docker.errors.NotFound:
+        return f"Error: container '{REDROID_CONTAINER}' not found"
+    except Exception as e:
+        return f"Error powering on device: {e}"
 
 
 # ── Entry point ──────────────────────────────────────────────────────────
