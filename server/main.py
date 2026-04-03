@@ -36,7 +36,6 @@ from droidrun.tools.formatters import IndexedFormatter
 from droidrun.portal import ensure_portal_ready
 from async_adbutils import adb
 from PIL import Image as PILImage
-import docker
 
 logger = logging.getLogger("handsoff")
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +44,13 @@ DEVICE_SERIAL = os.environ.get("DEVICE_SERIAL", "localhost:5555")
 USE_TCP = os.environ.get("DROIDRUN_USE_TCP", "true").lower() in ("1", "true", "yes")
 PORT = int(os.environ.get("PORT", "8000"))
 REDROID_CONTAINER = os.environ.get("REDROID_CONTAINER", "redroid")
+# Power backend: "docker" (default) uses docker.sock; "kubernetes" uses K8s API.
+# Set POWER_BACKEND=kubernetes when running as an EKS sidecar.
+# Requires: pip install kubernetes  (not listed in requirements.txt — optional dep)
+POWER_BACKEND = os.environ.get("POWER_BACKEND", "docker")
+K8S_NAMESPACE = os.environ.get("K8S_NAMESPACE", "default")
+K8S_POD_NAME = os.environ.get("K8S_POD_NAME", "redroid-0")
+K8S_STATEFULSET = os.environ.get("K8S_STATEFULSET", "redroid")
 
 # ── Instructions ─────────────────────────────────────────────────────────
 
@@ -466,7 +472,7 @@ async def device_health() -> str:
         return f"Device error: {e}"
 
 
-# ── Power control tools ──────────────────────────────────────────────────
+# ── Power control ────────────────────────────────────────────────────────
 
 def _reset_device_state():
     """Reset global device state so the next tool call re-initializes."""
@@ -478,24 +484,103 @@ def _reset_device_state():
     _ready = False
 
 
-def _get_docker_client():
-    """Get a Docker client connected to the host Docker socket."""
-    return docker.DockerClient(base_url="unix:///var/run/docker.sock")
+class _PowerBackend:
+    async def restart(self) -> str: ...
+    async def power_off(self) -> str: ...
+    async def power_on(self) -> str: ...
 
+
+class _DockerBackend(_PowerBackend):
+    def __init__(self, container_name: str):
+        self._container_name = container_name
+
+    def _client(self):
+        import docker
+        return docker.DockerClient(base_url="unix:///var/run/docker.sock")
+
+    async def restart(self) -> str:
+        import docker
+        try:
+            self._client().containers.get(self._container_name).restart(timeout=10)
+            await asyncio.sleep(15)
+            return "Device restarted successfully. Call get_device_state to verify."
+        except docker.errors.NotFound:
+            return f"Error: container '{self._container_name}' not found"
+
+    async def power_off(self) -> str:
+        import docker
+        try:
+            self._client().containers.get(self._container_name).stop(timeout=10)
+            return "Device powered off."
+        except docker.errors.NotFound:
+            return f"Error: container '{self._container_name}' not found"
+
+    async def power_on(self) -> str:
+        import docker
+        try:
+            self._client().containers.get(self._container_name).start()
+            await asyncio.sleep(15)
+            return "Device powered on. Call get_device_state to verify."
+        except docker.errors.NotFound:
+            return f"Error: container '{self._container_name}' not found"
+
+
+class _KubernetesBackend(_PowerBackend):
+    def __init__(self, namespace: str, pod_name: str, statefulset: str):
+        self._namespace = namespace
+        self._pod_name = pod_name
+        self._statefulset = statefulset
+
+    def _apis(self):
+        try:
+            from kubernetes import client as k8s_client, config as k8s_config
+        except ImportError:
+            raise RuntimeError(
+                "POWER_BACKEND=kubernetes requires the 'kubernetes' package: "
+                "pip install kubernetes"
+            )
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            k8s_config.load_kube_config()
+        return k8s_client.CoreV1Api(), k8s_client.AppsV1Api()
+
+    async def restart(self) -> str:
+        core, _ = self._apis()
+        core.delete_namespaced_pod(self._pod_name, self._namespace)
+        return "Device restarting. Call get_device_state in ~30s to verify."
+
+    async def power_off(self) -> str:
+        _, apps = self._apis()
+        apps.patch_namespaced_stateful_set_scale(
+            self._statefulset, self._namespace, {"spec": {"replicas": 0}}
+        )
+        return "Device powered off (StatefulSet scaled to 0)."
+
+    async def power_on(self) -> str:
+        _, apps = self._apis()
+        apps.patch_namespaced_stateful_set_scale(
+            self._statefulset, self._namespace, {"spec": {"replicas": 1}}
+        )
+        return "Device powering on. Call get_device_state in ~30s to verify."
+
+
+_power: _PowerBackend = (
+    _KubernetesBackend(K8S_NAMESPACE, K8S_POD_NAME, K8S_STATEFULSET)
+    if POWER_BACKEND == "kubernetes"
+    else _DockerBackend(REDROID_CONTAINER)
+)
+
+
+# ── Power control tools ──────────────────────────────────────────────────
 
 @mcp.tool()
 async def restart_device() -> str:
     """Restart the Android device (equivalent to rebooting a phone).
     The device will be unavailable for ~15-20 seconds while it reboots."""
+    _reset_device_state()
     try:
-        client = _get_docker_client()
-        container = client.containers.get(REDROID_CONTAINER)
-        _reset_device_state()
-        container.restart(timeout=10)
-        await asyncio.sleep(15)  # Wait for Android to boot
-        return "Device restarted successfully. Call get_device_state to verify."
-    except docker.errors.NotFound:
-        return f"Error: container '{REDROID_CONTAINER}' not found"
+        return await _power.restart()
     except Exception as e:
         return f"Error restarting device: {e}"
 
@@ -504,14 +589,9 @@ async def restart_device() -> str:
 async def power_off() -> str:
     """Power off the Android device (equivalent to shutting down a phone).
     The device will be unavailable until power_on is called."""
+    _reset_device_state()
     try:
-        client = _get_docker_client()
-        container = client.containers.get(REDROID_CONTAINER)
-        _reset_device_state()
-        container.stop(timeout=10)
-        return "Device powered off."
-    except docker.errors.NotFound:
-        return f"Error: container '{REDROID_CONTAINER}' not found"
+        return await _power.power_off()
     except Exception as e:
         return f"Error powering off device: {e}"
 
@@ -521,14 +601,9 @@ async def power_on() -> str:
     """Power on the Android device (equivalent to turning on a phone).
     The device will take ~15-20 seconds to boot."""
     try:
-        client = _get_docker_client()
-        container = client.containers.get(REDROID_CONTAINER)
-        container.start()
+        result = await _power.power_on()
         _reset_device_state()
-        await asyncio.sleep(15)  # Wait for Android to boot
-        return "Device powered on. Call get_device_state to verify."
-    except docker.errors.NotFound:
-        return f"Error: container '{REDROID_CONTAINER}' not found"
+        return result
     except Exception as e:
         return f"Error powering on device: {e}"
 
