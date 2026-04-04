@@ -4,14 +4,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     android-tools-adb \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1
+
 WORKDIR /app
 
+# Create virtual environment
+RUN uv venv /app/.venv
+ENV VIRTUAL_ENV="/app/.venv"
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Install droidrun-pkg (local dependency)
 COPY droidrun-pkg /droidrun-pkg
-RUN pip install --no-cache-dir /droidrun-pkg
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install /droidrun-pkg
 
-COPY server/requirements.txt .
-RUN grep -v 'droidrun-pkg' requirements.txt | pip install --no-cache-dir -r /dev/stdin
+# Install server dependencies (cached layer — only re-runs when pyproject.toml changes)
+COPY server/pyproject.toml /tmp/server-deps/pyproject.toml
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r /tmp/server-deps/pyproject.toml
 
+# Copy server code
 COPY server/ ./server/
 
 EXPOSE 8000
