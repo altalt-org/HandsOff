@@ -12,8 +12,8 @@ RUN pip install --no-cache-dir /droidrun-pkg
 COPY server/requirements.txt .
 RUN grep -v 'droidrun-pkg' requirements.txt | pip install --no-cache-dir -r /dev/stdin
 
-COPY server/main.py .
+COPY server/ ./server/
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
