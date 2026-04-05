@@ -141,8 +141,8 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
         return f"Installed apps ({len(lines)}):\n" + "\n".join(sorted(lines))
 
     @mcp.tool()
-    async def wait(duration: float = 1.0) -> str:
+    async def wait(seconds: float = 1.0) -> str:
         """Wait for a specified duration in seconds. Useful for waiting for
         animations, page loads, or other time-based operations."""
-        await asyncio.sleep(duration)
-        return f"Waited {duration} seconds"
+        await asyncio.sleep(seconds)
+        return f"Waited {seconds} seconds"

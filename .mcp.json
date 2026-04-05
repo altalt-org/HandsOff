@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "handsoff": {
-      "type": "sse",
-      "url": "http://100.108.63.26:8000/mcp/sse"
-    }
-  }
-}
