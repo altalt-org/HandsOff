@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -17,6 +18,9 @@ logger = logging.getLogger("handsoff")
 
 # Architecture for APK downloads — arm64 matches redroid on ARM hosts
 APK_ARCH = "arm64"
+
+# Valid Android package name: com.example.app (at least two dot-separated segments)
+_PACKAGE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
 
 
 def _download_apk(package: str, output_dir: Path) -> dict:
@@ -147,6 +151,8 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
         try:
             auth = await asyncio.to_thread(_ensure_auth)
             results = await asyncio.to_thread(search_apps, query, auth, limit)
+            # Filter out garbled entries from gplaydl's protobuf parser
+            results = [r for r in results if _PACKAGE_RE.match(r.get("package", ""))]
             if not results:
                 return f"No results found for '{query}'"
             lines = [f"Search results for '{query}' ({len(results)}):"]
