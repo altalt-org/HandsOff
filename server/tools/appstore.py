@@ -17,6 +17,8 @@ logger = logging.getLogger("handsoff")
 
 APKEEP_BIN = "apkeep"
 VALID_SOURCES = {"apkpure", "f-droid"}
+# apkeep CLI uses different source names than our user-facing API
+_APKEEP_SOURCE_MAP = {"apkpure": "apk-pure", "f-droid": "f-droid"}
 
 
 def _download_apk(package: str, source: str, output_dir: Path) -> list[Path]:
@@ -24,7 +26,8 @@ def _download_apk(package: str, source: str, output_dir: Path) -> list[Path]:
     if source not in VALID_SOURCES:
         raise ValueError(f"Invalid source '{source}', must be one of: {', '.join(VALID_SOURCES)}")
 
-    cmd = [APKEEP_BIN, "-a", package, "-d", source, str(output_dir)]
+    apkeep_source = _APKEEP_SOURCE_MAP[source]
+    cmd = [APKEEP_BIN, "-a", package, "-d", apkeep_source, str(output_dir)]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     if result.returncode != 0:
         raise RuntimeError(
@@ -69,7 +72,8 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
             return f"Error: source must be one of: {', '.join(VALID_SOURCES)}"
 
         try:
-            cmd = [APKEEP_BIN, "-l", "-a", package, "-d", source]
+            apkeep_source = _APKEEP_SOURCE_MAP[source]
+            cmd = [APKEEP_BIN, "-l", "-a", package, "-d", apkeep_source]
             result = await asyncio.to_thread(
                 subprocess.run, cmd, capture_output=True, text=True, timeout=60
             )
