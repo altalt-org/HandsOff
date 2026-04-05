@@ -57,6 +57,12 @@ To tap the Wi-Fi switch, call `click(index=1)`.
 - `power_off` — Shut down the device
 - `power_on` — Turn on a powered-off device (~15-20s boot time)
 
+### Google Play Store
+- `play_search(query, limit?)` — Search for apps on Google Play. Returns names, package names, and developers.
+- `play_info(package)` — Get app details: name, version, developer, rating, downloads, Play Store URL.
+- `install_from_play(package)` — Download and install an app from Google Play in one step (free apps only). Handles split APKs and OBB files automatically. Cleans up downloaded files after install.
+- `download_from_play(package)` — Download an app from Google Play without installing. Returns file paths for manual installation.
+
 ### Low-level ADB
 - `adb_shell(command)` — Run a raw ADB shell command
 - `adb_install(apk_path)` — Install an APK from the server filesystem
@@ -71,4 +77,5 @@ To tap the Wi-Fi switch, call `click(index=1)`.
 - **Use `system_button("back")` to go back.** This is more reliable than finding a back button in the UI.
 - **Use `clear=true` when replacing text.** When typing into a field that already has text (like URL bars), set `clear=true` to replace rather than append.
 - **Check preconditions.** Before executing a task, verify the required conditions are met (e.g., the right app is open, the right screen is showing).
+- **Use `install_from_play` to install apps.** Prefer this over manually finding and installing APKs — it handles split APKs, OBB files, and cleanup automatically. Only works with free apps.
 """
