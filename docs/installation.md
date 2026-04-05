@@ -36,7 +36,7 @@ If missing or not authenticated, tell the user to install the AWS CLI and run `a
 
 ## Step 1: Choose a Region
 
-Tell the user you're ready to provision a `t4g.small` ARM64 instance. Ask them which AWS region they'd like, or where they live so you can pick the nearest one.
+Tell the user you're ready to provision a `t4g.medium` ARM64 instance. Ask them where they live so you can pick the nearest one.
 
 ---
 
@@ -91,7 +91,7 @@ aws ec2 describe-images \
 ```bash
 aws ec2 run-instances \
   --image-id <ami-id> \
-  --instance-type t4g.small \
+  --instance-type t4g.medium \
   --key-name handsoff-key \
   --security-groups handsoff-sg \
   --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":32}}]' \
@@ -201,10 +201,17 @@ You should see `redroid`, `server`, and `scrcpy-web` all up. The redroid contain
 
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
 ```
 
-This prints an auth URL. **Give this URL to the user** and ask them to open it in their browser to authorize the machine. Wait for them to confirm.
+**Important:** `tailscale up` blocks until the user authorizes the machine in their browser. Run it in the background and capture the auth URL:
+
+```bash
+nohup sudo tailscale up > /tmp/ts-out.log 2>&1 &
+sleep 5
+cat /tmp/ts-out.log
+```
+
+This will print an auth URL. **Give this URL to the user** and ask them to open it in their browser to authorize the machine. Wait for them to confirm.
 
 Once authenticated, get the Tailscale IP:
 
@@ -225,22 +232,7 @@ Note this IP — all services are now accessible at:
 
 Configure MCP on the user's **local machine** (not the EC2 instance) so the agent harness can reach the HandsOff server.
 
-Detect which harness you're running in and add the MCP server config:
-
-**Claude Code** — write to `~/.claude/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "handsoff": {
-      "type": "sse",
-      "url": "http://<tailscale-ip>:8000/mcp/sse"
-    }
-  }
-}
-```
-
-**Cursor / VS Code** — write to the appropriate MCP config file for the editor.
+Detect which harness you're running in and add the MCP server config
 
 Merge with existing config if present — don't overwrite.
 
