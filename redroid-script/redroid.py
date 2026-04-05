@@ -12,6 +12,7 @@ from stuff.widevine import Widevine
 from stuff.lawnchair import Lawnchair
 from stuff.droidrun_portal import DroidrunPortal
 from stuff.skip_setup import SkipSetup
+from stuff.locale import Locale
 import tools.helper as helper
 import subprocess
 
@@ -61,6 +62,9 @@ def main():
     parser.add_argument('-ss', '--skip-setup', dest='skip_setup',
                         help='Skip Android setup wizard on first boot',
                         action='store_true')
+    parser.add_argument('-loc', '--locale', dest='locale',
+                        help='Set system locales (comma-separated, e.g. en-US,ko-KR)',
+                        default=None)
     parser.add_argument('-p', '--prop', dest='props',
                         help='Set a system property (ro.foo=bar), can be repeated',
                         action='append', default=[])
@@ -131,6 +135,9 @@ def main():
     if args.skip_setup:
         SkipSetup().install()
         dockerfile = dockerfile+"COPY skip_setup /\n"
+    if args.locale:
+        Locale(args.locale).install()
+        dockerfile = dockerfile+"COPY locale /\n"
     if args.props:
         dockerfile = dockerfile + 'CMD [{}]\n'.format(
             ", ".join('"{}"'.format(p) for p in args.props)
