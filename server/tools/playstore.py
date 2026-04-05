@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -18,9 +17,6 @@ logger = logging.getLogger("handsoff")
 
 # Architecture for APK downloads — arm64 matches redroid on ARM hosts
 APK_ARCH = "arm64"
-
-# Valid Android package name: com.example.app (at least two dot-separated segments)
-_PACKAGE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
 
 
 def _download_apk(package: str, output_dir: Path) -> dict:
@@ -100,6 +96,45 @@ def _download_apk(package: str, output_dir: Path) -> dict:
     }
 
 
+APKEDITOR_JAR = "/opt/apkeditor.jar"
+SIDELOAD_KEYSTORE = "/opt/sideload.keystore"
+SIDELOAD_PASS = "handsoff"
+
+
+def _merge_apks(apk_files: list[Path], asset_packs: list[Path], output_dir: Path) -> Path:
+    """Merge split APKs + asset packs into a single APK, then re-sign it."""
+    # Create a directory with all APKs to merge
+    merge_dir = output_dir / "_merge_input"
+    merge_dir.mkdir()
+    for apk in apk_files + asset_packs:
+        (merge_dir / apk.name).symlink_to(apk)
+
+    merged_path = output_dir / "merged.apk"
+    result = subprocess.run(
+        ["java", "-jar", APKEDITOR_JAR, "m", "-i", str(merge_dir), "-o", str(merged_path)],
+        capture_output=True, text=True, timeout=300,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"APK merge failed: {result.stderr.strip() or result.stdout.strip()}")
+
+    # Re-sign — merging invalidates the original signatures
+    result = subprocess.run(
+        [
+            "apksigner", "sign",
+            "--ks", SIDELOAD_KEYSTORE,
+            "--ks-pass", f"pass:{SIDELOAD_PASS}",
+            "--ks-key-alias", "sideload",
+            "--key-pass", f"pass:{SIDELOAD_PASS}",
+            str(merged_path),
+        ],
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"APK signing failed: {result.stderr.strip() or result.stdout.strip()}")
+
+    return merged_path
+
+
 def _install_apks(apk_files: list[Path], serial: str) -> str:
     """Install APK(s) via ADB. Uses install-multiple for split APKs."""
     cmd = ["adb", "-s", serial]
@@ -151,8 +186,6 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
         try:
             auth = await asyncio.to_thread(_ensure_auth)
             results = await asyncio.to_thread(search_apps, query, auth, limit)
-            # Filter out garbled entries from gplaydl's protobuf parser
-            results = [r for r in results if _PACKAGE_RE.match(r.get("package", ""))]
             if not results:
                 return f"No results found for '{query}'"
             lines = [f"Search results for '{query}' ({len(results)}):"]
@@ -212,32 +245,23 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
                 total = len(apk_files) + len(asset_packs)
                 logger.info(f"Downloaded {title} v{version} ({total} APK(s))")
 
-                # Install base + config split APKs together
-                await asyncio.to_thread(_install_apks, apk_files, DEVICE_SERIAL)
-
-                # Asset packs are best-effort — they're normally delivered at
-                # runtime by the Play Store and many apps work without them.
-                asset_results = []
-                for asset in asset_packs:
-                    try:
-                        await asyncio.to_thread(
-                            _install_apks, [asset], DEVICE_SERIAL
-                        )
-                        asset_results.append((asset.name, True, None))
-                    except RuntimeError as e:
-                        asset_results.append((asset.name, False, str(e)))
-                        logger.warning(f"Asset pack install failed (non-fatal): {e}")
+                if asset_packs:
+                    # Merge all APKs (base + splits + asset packs) into one
+                    logger.info("Merging APKs with asset packs...")
+                    merged = await asyncio.to_thread(
+                        _merge_apks, apk_files, asset_packs, tmp
+                    )
+                    await asyncio.to_thread(_install_apks, [merged], DEVICE_SERIAL)
+                else:
+                    await asyncio.to_thread(_install_apks, apk_files, DEVICE_SERIAL)
 
                 # Push OBB files if any
                 if obb_files:
                     await asyncio.to_thread(_push_obb_files, obb_files, DEVICE_SERIAL)
 
-                parts = [f"Installed {title} v{version} ({len(apk_files)} APK(s))"]
-                for name, ok, err in asset_results:
-                    if ok:
-                        parts.append(f"Asset pack {name}: installed")
-                    else:
-                        parts.append(f"Asset pack {name}: skipped (app will download at runtime)")
+                parts = [f"Installed {title} v{version} ({total} APK(s))"]
+                if asset_packs:
+                    parts.append(f"Merged {len(asset_packs)} asset pack(s) into single APK")
                 if obb_files:
                     parts.append(f"Pushed {len(obb_files)} OBB file(s) to device")
                 parts.append("All temporary files cleaned up.")

@@ -2,7 +2,17 @@ FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     android-tools-adb \
+    default-jre-headless \
+    apksigner \
     && rm -rf /var/lib/apt/lists/*
+
+# APKEditor for merging split APKs + asset packs into a single installable APK
+ADD https://github.com/REAndroid/APKEditor/releases/download/V1.4.8/APKEditor-1.4.8.jar /opt/apkeditor.jar
+
+# Generate a signing key for re-signing merged APKs
+RUN keytool -genkey -v -keystore /opt/sideload.keystore -storepass handsoff \
+    -alias sideload -keypass handsoff -keyalg RSA -keysize 2048 -validity 36500 \
+    -dname "CN=HandsOff,O=HandsOff" 2>/dev/null
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
