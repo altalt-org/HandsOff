@@ -6,6 +6,7 @@ import asyncio
 import logging
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -34,29 +35,45 @@ def _download_apk(package: str, source: str, output_dir: Path) -> list[Path]:
             f"apkeep download failed: {result.stderr.strip() or result.stdout.strip()}"
         )
 
-    # Find downloaded APK files
+    # Find downloaded files
     apk_files = sorted(output_dir.glob("*.apk"))
-    if not apk_files:
-        # apkeep may also download .xapk files
-        xapk_files = sorted(output_dir.glob("*.xapk"))
-        if xapk_files:
-            raise RuntimeError(
-                f"Downloaded XAPK format (not a standard APK). "
-                f"This app may not be available as a single APK from {source}."
-            )
-        raise RuntimeError(
-            f"No APK files found after download. apkeep output: {result.stdout.strip()}"
-        )
+    if apk_files:
+        return apk_files
 
+    # Check for XAPK (ZIP containing split APKs)
+    xapk_files = sorted(output_dir.glob("*.xapk"))
+    if xapk_files:
+        return _extract_xapk(xapk_files[0], output_dir)
+
+    raise RuntimeError(
+        f"No APK files found after download. apkeep output: {result.stdout.strip()}"
+    )
+
+
+def _extract_xapk(xapk_path: Path, output_dir: Path) -> list[Path]:
+    """Extract APK files from an XAPK (ZIP) bundle."""
+    extract_dir = output_dir / "_xapk"
+    extract_dir.mkdir()
+    with zipfile.ZipFile(xapk_path, "r") as zf:
+        zf.extractall(extract_dir)
+
+    apk_files = sorted(extract_dir.glob("*.apk"))
+    if not apk_files:
+        raise RuntimeError("XAPK archive contained no APK files")
+
+    logger.info(f"Extracted {len(apk_files)} APK(s) from XAPK bundle")
     return apk_files
 
 
-def _install_apk(apk_path: Path, serial: str) -> str:
-    """Install a single APK via ADB."""
-    result = subprocess.run(
-        ["adb", "-s", serial, "install", "-r", str(apk_path)],
-        capture_output=True, text=True, timeout=120,
-    )
+def _install_apks(apk_files: list[Path], serial: str) -> str:
+    """Install APK(s) via ADB. Uses install-multiple for split APKs."""
+    cmd = ["adb", "-s", serial]
+    if len(apk_files) == 1:
+        cmd += ["install", "-r", str(apk_files[0])]
+    else:
+        cmd += ["install-multiple", "-r"] + [str(f) for f in apk_files]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if result.returncode != 0:
         raise RuntimeError(f"ADB install failed: {result.stderr.strip() or result.stdout.strip()}")
     return result.stdout.strip()
@@ -89,7 +106,7 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
     @mcp.tool()
     async def app_install(package: str, source: str = "apkpure") -> str:
         """Download an app from APKPure or F-Droid and install it on the device.
-        Downloads a single monolithic APK — no split APK merging needed.
+        Handles both single APKs and XAPK (split APK) bundles automatically.
         Sources: "apkpure" (default), "f-droid"
         Example: app_install(package="org.mozilla.firefox", source="apkpure")"""
         await dm.ensure_ready()
@@ -104,17 +121,17 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
                 logger.info(f"Downloading {package} from {source}...")
                 apk_files = await asyncio.to_thread(_download_apk, package, source, tmp)
 
-                apk = apk_files[0]
-                size_mb = apk.stat().st_size / (1024 * 1024)
-                logger.info(f"Installing {apk.name} ({size_mb:.1f} MB)...")
+                total_mb = sum(f.stat().st_size for f in apk_files) / (1024 * 1024)
+                logger.info(f"Installing {len(apk_files)} APK(s) ({total_mb:.1f} MB)...")
 
-                await asyncio.to_thread(_install_apk, apk, DEVICE_SERIAL)
+                await asyncio.to_thread(_install_apks, apk_files, DEVICE_SERIAL)
 
-                return (
-                    f"Installed {package} from {source}\n"
-                    f"APK: {apk.name} ({size_mb:.1f} MB)\n"
-                    f"All temporary files cleaned up."
-                )
+                parts = [f"Installed {package} from {source}"]
+                for apk in apk_files:
+                    size_mb = apk.stat().st_size / (1024 * 1024)
+                    parts.append(f"  {apk.name} ({size_mb:.1f} MB)")
+                parts.append("All temporary files cleaned up.")
+                return "\n".join(parts)
         except Exception as e:
             return f"Error: {e}"
 
