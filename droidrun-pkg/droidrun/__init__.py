@@ -17,60 +17,21 @@ _logger.addHandler(CLILogHandler())
 _logger.setLevel(logging.INFO)
 _logger.propagate = False
 
-# Import main classes for easier access
-from droidrun.agent import ResultEvent
-from droidrun.agent.droid import DroidAgent
-from droidrun.agent.utils.llm_picker import load_llm
-
-# Import configuration classes
-from droidrun.config_manager import (
-    # Agent configs
-    AgentConfig,
-    AppCardConfig,
-    FastAgentConfig,
-    CredentialsConfig,
-    # Feature configs
-    DeviceConfig,
-    DroidConfig,
-    ExecutorConfig,
-    LLMProfile,
-    LoggingConfig,
-    ManagerConfig,
-    TelemetryConfig,
-    ToolsConfig,
-    TracingConfig,
-)
-
-# Import macro functionality
-from droidrun.macro import MacroPlayer, replay_macro_file, replay_macro_folder
+# Heavy imports commented out — require llama-index and other large deps.
+# Uncomment when using the full droidrun agent stack.
+# from droidrun.agent import ResultEvent
+# from droidrun.agent.droid import DroidAgent
+# from droidrun.agent.utils.llm_picker import load_llm
+# from droidrun.config_manager import (
+#     AgentConfig, AppCardConfig, FastAgentConfig, CredentialsConfig,
+#     DeviceConfig, DroidConfig, ExecutorConfig, LLMProfile,
+#     LoggingConfig, ManagerConfig, TelemetryConfig, ToolsConfig, TracingConfig,
+# )
+# from droidrun.macro import MacroPlayer, replay_macro_file, replay_macro_folder
 from droidrun.tools import AndroidDriver, DeviceDriver, RecordingDriver
 
-# Make main components available at package level
 __all__ = [
-    # Agent
-    "DroidAgent",
-    "load_llm",
-    "ResultEvent",
-    # Tools / Drivers
     "DeviceDriver",
     "AndroidDriver",
     "RecordingDriver",
-    # Macro
-    "MacroPlayer",
-    "replay_macro_file",
-    "replay_macro_folder",
-    # Configuration
-    "DroidConfig",
-    "AgentConfig",
-    "FastAgentConfig",
-    "ManagerConfig",
-    "ExecutorConfig",
-    "AppCardConfig",
-    "DeviceConfig",
-    "LoggingConfig",
-    "TracingConfig",
-    "TelemetryConfig",
-    "ToolsConfig",
-    "CredentialsConfig",
-    "LLMProfile",
 ]
