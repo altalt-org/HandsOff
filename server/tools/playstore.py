@@ -166,12 +166,16 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
         try:
             auth = await asyncio.to_thread(_ensure_auth)
             details = await asyncio.to_thread(get_details, package, auth)
+            try:
+                rating = f"{float(details.rating):.1f}/5"
+            except (ValueError, TypeError):
+                rating = str(details.rating)
             lines = [
                 f"Name: {details.title}",
                 f"Package: {details.package}",
                 f"Version: {details.version_string} (code: {details.version_code})",
                 f"Developer: {details.developer}",
-                f"Rating: {details.rating:.1f}/5",
+                f"Rating: {rating}",
                 f"Downloads: {details.downloads}",
                 f"Play Store: {details.play_url}",
             ]
