@@ -33,5 +33,15 @@ services:
       - redroid
     restart: always
 
+  scrcpy-web:
+    image: shmayro/scrcpy-web:latest
+    ports:
+      - "8080:8000"
+    depends_on:
+      - redroid
+    command: >
+      sh -c "adb connect redroid:5555 && npm start"
+    restart: always
+
 volumes:
   redroid-data:
