@@ -117,25 +117,36 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
     @mcp.tool()
     async def app_download(package: str, source: str = "apkpure") -> str:
         """Download an app from APKPure or F-Droid WITHOUT installing it.
-        Files are saved inside the container. Returns the file path.
+        Pushes the APK to the Android device's storage via ADB.
+        Returns the file path on the device.
         Sources: "apkpure" (default), "f-droid"
         Example: app_download(package="org.mozilla.firefox", source="apkpure")"""
+        await dm.ensure_ready()
+
         if source not in VALID_SOURCES:
             return f"Error: source must be one of: {', '.join(VALID_SOURCES)}"
 
-        tmpdir = tempfile.mkdtemp(prefix="handsoff-apk-")
-        tmp = Path(tmpdir)
-
         try:
-            apk_files = await asyncio.to_thread(_download_apk, package, source, tmp)
+            with tempfile.TemporaryDirectory(prefix="handsoff-apk-") as tmpdir:
+                tmp = Path(tmpdir)
+                apk_files = await asyncio.to_thread(_download_apk, package, source, tmp)
 
-            lines = [f"Downloaded {package} from {source}", f"Directory: {tmpdir}", ""]
-            for apk in apk_files:
-                size_mb = apk.stat().st_size / (1024 * 1024)
-                lines.append(f"  {apk.name} ({size_mb:.1f} MB)")
-            lines.append(f"\nTo install: use adb_shell with 'pm install -r {apk_files[0]}'")
-            return "\n".join(lines)
+                lines = [f"Downloaded {package} from {source}", ""]
+                device_paths = []
+                for apk in apk_files:
+                    size_mb = apk.stat().st_size / (1024 * 1024)
+                    device_dest = f"/sdcard/Download/{apk.name}"
+                    result = await asyncio.to_thread(
+                        subprocess.run,
+                        ["adb", "-s", DEVICE_SERIAL, "push", str(apk), device_dest],
+                        capture_output=True, text=True, timeout=300,
+                    )
+                    if result.returncode != 0:
+                        raise RuntimeError(f"adb push failed: {result.stderr.strip()}")
+                    device_paths.append(device_dest)
+                    lines.append(f"  {device_dest} ({size_mb:.1f} MB)")
+
+                lines.append(f"\nTo install: use adb_shell with 'pm install -r {device_paths[0]}'")
+                return "\n".join(lines)
         except Exception as e:
-            import shutil
-            shutil.rmtree(tmpdir, ignore_errors=True)
             return f"Error: {e}"
