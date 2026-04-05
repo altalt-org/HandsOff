@@ -1,18 +1,20 @@
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    android-tools-adb \
-    default-jre-headless \
-    apksigner \
+    android-tools-adb curl \
     && rm -rf /var/lib/apt/lists/*
 
-# APKEditor for merging split APKs + asset packs into a single installable APK
-ADD https://github.com/REAndroid/APKEditor/releases/download/V1.4.8/APKEditor-1.4.8.jar /opt/apkeditor.jar
-
-# Generate a signing key for re-signing merged APKs
-RUN keytool -genkey -v -keystore /opt/sideload.keystore -storepass handsoff \
-    -alias sideload -keypass handsoff -keyalg RSA -keysize 2048 -validity 36500 \
-    -dname "CN=HandsOff,O=HandsOff" 2>/dev/null
+# Install apkeep for downloading APKs from APKPure / F-Droid
+ARG TARGETARCH
+ARG APKEEP_VERSION=0.18.0
+RUN case "${TARGETARCH}" in \
+        arm64) APKEEP_ARCH="aarch64-unknown-linux-gnu" ;; \
+        amd64) APKEEP_ARCH="x86_64-unknown-linux-gnu" ;; \
+        *) echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/EFForg/apkeep/releases/download/${APKEEP_VERSION}/apkeep-${APKEEP_ARCH}" \
+        -o /usr/local/bin/apkeep && \
+    chmod +x /usr/local/bin/apkeep
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

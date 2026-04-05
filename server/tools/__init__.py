@@ -6,7 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 from ..device import DeviceManager
 from ..power import PowerBackend
-from . import adb, interaction, observation, playstore, power
+from . import adb, appstore, interaction, observation, power
 
 
 def register_all(
@@ -18,5 +18,5 @@ def register_all(
     observation.register(mcp, device_manager)
     interaction.register(mcp, device_manager)
     adb.register(mcp, device_manager)
-    playstore.register(mcp, device_manager)
+    appstore.register(mcp, device_manager)
     power.register(mcp, device_manager, power_backend)
