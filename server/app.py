@@ -24,7 +24,7 @@ logging.basicConfig(level=logging.INFO)
 
 device_manager = DeviceManager()
 
-mcp = FastMCP("droidrun", instructions=INSTRUCTIONS)
+mcp = FastMCP("droidrun", instructions=INSTRUCTIONS, host="0.0.0.0")
 
 app = FastAPI(title="HandsOff")
 app.mount("/mcp", mcp.sse_app())
