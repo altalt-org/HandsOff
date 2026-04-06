@@ -149,7 +149,8 @@ class ServiceManager:
             prefix + "/{path:path}",
             name=self._route_name(svc, "ws"),
         )
-        async def _proxy_ws(ws: WebSocket, path: str, _up: str = upstream) -> None:
+        async def _proxy_ws(ws: WebSocket) -> None:
+            path = ws.path_params.get("path", "")
             await ws.accept()
             ws_url = f"ws://127.0.0.1:{svc.server_port}/{path}"
 
