@@ -40,7 +40,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - DEVICE_SERIAL=redroid:5555
-      - REDROID_CONTAINER=handsoff-redroid-1
     depends_on:
       - redroid
     restart: always

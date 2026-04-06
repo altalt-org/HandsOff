@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from .config import (
+    DEVICE_SERIAL,
     K8S_NAMESPACE,
     K8S_POD_NAME,
     K8S_STATEFULSET,
@@ -22,36 +23,67 @@ class PowerBackend:
 class DockerBackend(PowerBackend):
     def __init__(self, container_name: str):
         self._container_name = container_name
+        self._resolved: str | None = None
 
     def _client(self):
         import docker
         return docker.DockerClient(base_url="unix:///var/run/docker.sock")
 
+    def _resolve(self):
+        """Resolve the container: try the configured name first, then fall back
+        to finding the container by its Docker network alias (derived from
+        DEVICE_SERIAL hostname).  This handles varying compose project names
+        without manual configuration."""
+        if self._resolved:
+            return self._resolved
+        import docker
+        client = self._client()
+        # Try explicit name first
+        try:
+            client.containers.get(self._container_name)
+            self._resolved = self._container_name
+            return self._resolved
+        except docker.errors.NotFound:
+            pass
+        # Fall back: find container whose network alias matches the device hostname
+        hostname = DEVICE_SERIAL.split(":")[0]
+        for c in client.containers.list(all=True):
+            for net_cfg in (c.attrs.get("NetworkSettings", {})
+                            .get("Networks", {}).values()):
+                aliases = net_cfg.get("Aliases") or []
+                if hostname in aliases:
+                    self._resolved = c.id
+                    return self._resolved
+        raise docker.errors.NotFound(
+            f"No container found for '{self._container_name}' "
+            f"or network alias '{hostname}'"
+        )
+
     async def restart(self) -> str:
         import docker
         try:
-            self._client().containers.get(self._container_name).restart(timeout=10)
+            self._client().containers.get(self._resolve()).restart(timeout=10)
             await asyncio.sleep(15)
             return "Device restarted successfully. Call get_device_state to verify."
-        except docker.errors.NotFound:
-            return f"Error: container '{self._container_name}' not found"
+        except docker.errors.NotFound as e:
+            return f"Error: {e}"
 
     async def power_off(self) -> str:
         import docker
         try:
-            self._client().containers.get(self._container_name).stop(timeout=10)
+            self._client().containers.get(self._resolve()).stop(timeout=10)
             return "Device powered off."
-        except docker.errors.NotFound:
-            return f"Error: container '{self._container_name}' not found"
+        except docker.errors.NotFound as e:
+            return f"Error: {e}"
 
     async def power_on(self) -> str:
         import docker
         try:
-            self._client().containers.get(self._container_name).start()
+            self._client().containers.get(self._resolve()).start()
             await asyncio.sleep(15)
             return "Device powered on. Call get_device_state to verify."
-        except docker.errors.NotFound:
-            return f"Error: container '{self._container_name}' not found"
+        except docker.errors.NotFound as e:
+            return f"Error: {e}"
 
 
 class KubernetesBackend(PowerBackend):

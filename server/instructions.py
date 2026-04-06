@@ -57,6 +57,8 @@ To tap the Wi-Fi switch, call `click(index=1)`.
 - `power_off` — Shut down the device
 - `power_on` — Turn on a powered-off device (~15-20s boot time)
 
+**IMPORTANT:** Never use `adb shell reboot`, `adb reboot`, or any in-shell reboot/shutdown commands. They will hang indefinitely on this device. Always use the `restart_device`, `power_off`, and `power_on` tools instead.
+
 ### Google Play Store
 - `play_search(query, limit?)` — Search for apps on Google Play. Returns names, package names, and developers.
 - `play_info(package)` — Get app details: name, version, developer, rating, downloads, Play Store URL.
