@@ -80,4 +80,5 @@ To tap the Wi-Fi switch, call `click(index=1)`.
 - **Use `clear=true` when replacing text.** When typing into a field that already has text (like URL bars), set `clear=true` to replace rather than append.
 - **Check preconditions.** Before executing a task, verify the required conditions are met (e.g., the right app is open, the right screen is showing).
 - **Use `install_from_play` to install apps.** Prefer this over manually finding and installing APKs — it handles split APKs, OBB files, and cleanup automatically. Only works with free apps.
+- **Root hiding (DenyList).** This device has Magisk with Zygisk and DenyList enabled. To hide root from an app (e.g., banking apps, KakaoTalk), add it to the DenyList after installing: `su -c "magisk --denylist add <package>"`. Force-stop the app if it's already running so it restarts with root hidden. To check the current list: `su -c "magisk --denylist ls"`. To remove: `su -c "magisk --denylist rm <package>"`.
 """
