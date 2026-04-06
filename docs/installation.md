@@ -232,7 +232,9 @@ Note this IP — all services are now accessible at:
 
 Configure MCP on the user's **local machine** (not the EC2 instance) so the agent harness can reach the HandsOff server.
 
-Detect which harness you're running in and add the MCP server config
+Detect which harness you're running in and add the MCP server config.
+
+For example, if you are running on claude code, consult claude-code-guide for guidance.
 
 Merge with existing config if present — don't overwrite.
 
