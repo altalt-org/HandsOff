@@ -16,6 +16,7 @@ from .config import DEVICE_SERIAL
 from .device import DeviceManager
 from .instructions import INSTRUCTIONS
 from .power import create_power_backend
+from .services import ServiceManager
 from .tools import register_all
 
 logging.basicConfig(level=logging.INFO)
@@ -29,9 +30,11 @@ mcp = FastMCP("droidrun", instructions=INSTRUCTIONS, host="0.0.0.0")
 app = FastAPI(title="HandsOff")
 app.mount("/mcp", mcp.sse_app())
 
+service_manager = ServiceManager(app=app)
+
 # ── Register all MCP tools ─────────────────────────────────────────────
 
-register_all(mcp, device_manager, create_power_backend())
+register_all(mcp, device_manager, create_power_backend(), service_manager)
 
 # ── MCP resource ───────────────────────────────────────────────────────
 

@@ -5,3 +5,5 @@ mcp>=1.26.0
 Pillow>=10.0.0
 docker>=7.0.0
 kubernetes>=29.0.0
+httpx>=0.27.0
+websockets>=13.0
