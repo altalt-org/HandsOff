@@ -143,33 +143,8 @@ class ServiceManager:
                 headers=fwd_headers,
             )
 
-        # HTTP catch-all: /services/<prefix>/{path}
-        @self.app.api_route(
-            prefix + "/{path:path}",
-            methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
-            name=self._route_name(svc, "http"),
-            include_in_schema=False,
-        )
-        async def _proxy_http(request: Request, path: str, _up: str = upstream) -> StreamingResponse:
-            url = f"{_up}/{path}"
-            if request.url.query:
-                url = f"{url}?{request.url.query}"
-            return await _do_proxy(request, url)
-
-        # Also handle bare prefix (no trailing path)
-        @self.app.api_route(
-            prefix,
-            methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
-            name=self._route_name(svc, "http_root"),
-            include_in_schema=False,
-        )
-        async def _proxy_http_root(request: Request, _up: str = upstream) -> StreamingResponse:
-            url = _up
-            if request.url.query:
-                url = f"{url}?{request.url.query}"
-            return await _do_proxy(request, url)
-
-        # WebSocket: /services/<prefix>/ws/{path}
+        # WebSocket: /services/<prefix>/{path} — registered BEFORE HTTP
+        # catch-all so Starlette's router sees it first for upgrade requests.
         @self.app.websocket_route(
             prefix + "/{path:path}",
             name=self._route_name(svc, "ws"),
@@ -204,6 +179,32 @@ class ServiceManager:
             except Exception as e:
                 logger.warning(f"WebSocket proxy error for {svc.name}: {e}")
                 await ws.close(code=1011, reason=str(e))
+
+        # HTTP catch-all: /services/<prefix>/{path}
+        @self.app.api_route(
+            prefix + "/{path:path}",
+            methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+            name=self._route_name(svc, "http"),
+            include_in_schema=False,
+        )
+        async def _proxy_http(request: Request, path: str, _up: str = upstream) -> StreamingResponse:
+            url = f"{_up}/{path}"
+            if request.url.query:
+                url = f"{url}?{request.url.query}"
+            return await _do_proxy(request, url)
+
+        # Also handle bare prefix (no trailing path)
+        @self.app.api_route(
+            prefix,
+            methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+            name=self._route_name(svc, "http_root"),
+            include_in_schema=False,
+        )
+        async def _proxy_http_root(request: Request, _up: str = upstream) -> StreamingResponse:
+            url = _up
+            if request.url.query:
+                url = f"{url}?{request.url.query}"
+            return await _do_proxy(request, url)
 
     def _remove_proxy_routes(self, svc: ExposedService) -> None:
         """Remove dynamically added routes from the FastAPI app."""
