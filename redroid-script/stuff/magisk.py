@@ -38,7 +38,7 @@ MAGISK=/sbin/magisk
 $MAGISK --sqlite "REPLACE INTO settings (key,value) VALUES('su_auto_response',2);"
 
 # Write SharedPreferences XML (the canonical location for this setting).
-MAGISK_PKG="io.github.huskydg.magisk"
+MAGISK_PKG="com.topjohnwu.magisk"
 PREFS_DIR="/data/user_de/0/$MAGISK_PKG/shared_prefs"
 if [ -d "/data/data/$MAGISK_PKG" ]; then
     mkdir -p "$PREFS_DIR"
@@ -73,7 +73,7 @@ on property:vold.decrypt=trigger_restart_framework
     exec u:r:su:s0 root root -- {MAGISKTMP}/magisk --auto-selinux --service
 on property:sys.boot_completed=1
     exec u:r:su:s0 root root -- {MAGISKTMP}/magisk --auto-selinux --boot-complete
-    exec -- /system/bin/sh -c "if [ ! -e /data/data/io.github.huskydg.magisk ] ; then pm install /system/etc/init/magisk/magisk.apk ; fi"
+    exec -- /system/bin/sh -c "if [ ! -e /data/data/com.topjohnwu.magisk ] ; then pm install /system/etc/init/magisk/magisk.apk ; fi"
     exec u:r:su:s0 root root -- /system/bin/sh -c "[ ! -f /data/adb/.magisk_configured ] && /system/etc/init/magisk/configure.sh"
 
 on property:init.svc.zygote=restarting
@@ -113,6 +113,24 @@ on property:init.svc.zygote=stopped
                 shutil.copyfile(o_path, n_path)
                 run(["chmod", "+x", n_path])
         shutil.copyfile(self.dl_file_name, os.path.join(self.magisk_dir,"magisk.apk") )
+
+        # Extract assets that fixEnv() checks for (stub.apk, boot_patch.sh,
+        # util_functions.sh, etc).  Without these the Magisk app shows
+        # "Requires Additional Setup" on first launch.
+        assets_dir = os.path.join(self.extract_to, "assets")
+        for asset in ["stub.apk", "boot_patch.sh", "util_functions.sh",
+                      "addon.d.sh", "module_installer.sh", "uninstaller.sh",
+                      "bootctl", "main.jar"]:
+            src = os.path.join(assets_dir, asset)
+            if os.path.isfile(src):
+                shutil.copyfile(src, os.path.join(self.magisk_dir, asset))
+        # Copy chromeos directory if present
+        chromeos_src = os.path.join(assets_dir, "chromeos")
+        chromeos_dst = os.path.join(self.magisk_dir, "chromeos")
+        if os.path.isdir(chromeos_src):
+            shutil.copytree(chromeos_src, chromeos_dst, dirs_exist_ok=True)
+        print_color("Extracted Magisk assets (stub.apk, boot_patch.sh, ...)",
+                    bcolors.GREEN)
 
         # Pre-create magisk.db so the daemon reads our settings during its
         # first --post-fs-data (before it would create an empty default db).
