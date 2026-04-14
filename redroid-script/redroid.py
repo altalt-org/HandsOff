@@ -75,9 +75,25 @@ def main():
                         choices=['docker', 'podman'])
 
     args = parser.parse_args()
+    # containerd 2.x fix: /etc is an absolute symlink (/etc -> /system/etc) in the
+    # Android base image. containerd 2.2+ (Go 1.24 openat2) rejects absolute symlinks
+    # in container rootfs.
+    # Strategy: compile a CGO_ENABLED=0 Go binary (truly static, no PT_INTERP) that
+    # replaces /etc with a relative symlink. Static Go binaries run on any Linux ARM64
+    # kernel regardless of libc — unlike Alpine busybox (musl dynamic) which fails.
+    # Ref: https://github.com/containerd/containerd/issues/12683
+    dockerfile = dockerfile + \
+        "FROM golang:1.23-alpine AS symlink-fixer\n"
+    dockerfile = dockerfile + \
+        'RUN printf \'package main\\nimport "os"\\nfunc main() { os.Remove("/etc"); os.Symlink("system/etc", "/etc") }\' > /fix.go && ' \
+        'CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /symlink-fix /fix.go\n'
     dockerfile = dockerfile + \
         "FROM redroid/redroid:{}-latest\n".format(
             args.android)
+    dockerfile = dockerfile + \
+        "COPY --from=symlink-fixer /symlink-fix /tmp/symlink-fix\n"
+    dockerfile = dockerfile + \
+        'RUN ["/tmp/symlink-fix"]\n'
     tags.append(args.android)
     if args.gapps:
         if args.android in ["11.0.0"]:
