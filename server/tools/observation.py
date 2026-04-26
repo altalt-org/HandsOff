@@ -44,14 +44,15 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
         driver, _ = await dm.ensure_ready()
         png_bytes = await driver.screenshot()
 
-        # Resize and compress to JPEG to stay within Claude Code's MCP token limits.
-        img = PILImage.open(io.BytesIO(png_bytes))
-        max_height = 800
-        if img.height > max_height:
-            ratio = max_height / img.height
-            img = img.resize((int(img.width * ratio), max_height), PILImage.LANCZOS)
+        # Claude Code applies MAX_MCP_OUTPUT_TOKENS (default 25k) to the
+        # serialized base64 payload, so we have to ship a small JPEG even
+        # though Claude Vision itself would happily accept much larger.
+        # Cap longest side at 768px and JPEG q=50: portrait 1080x1920 lands
+        # at ~432x768 / ~30-50 KB base64 with margin under the cap.
+        img = PILImage.open(io.BytesIO(png_bytes)).convert("RGB")
+        img.thumbnail((768, 768), PILImage.LANCZOS)
         buf = io.BytesIO()
-        img.convert("RGB").save(buf, format="JPEG", quality=60)
+        img.save(buf, format="JPEG", quality=50, optimize=True)
         b64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
         return [
