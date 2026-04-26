@@ -49,8 +49,6 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
         # though Claude Vision itself would happily accept much larger.
         # Cap longest side at 768px and JPEG q=50: portrait 1080x1920 lands
         # at ~432x768 / ~30-50 KB base64 with margin under the cap.
-        # (Comment-only update to test the in-place handsoff-server update flow.)
-        # Second nudge — verifying the fix to `kill 1` and the exec-forbidden detector.
         img = PILImage.open(io.BytesIO(png_bytes)).convert("RGB")
         img.thumbnail((768, 768), PILImage.LANCZOS)
         buf = io.BytesIO()
