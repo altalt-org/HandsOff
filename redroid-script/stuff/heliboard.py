@@ -29,28 +29,38 @@ _SEED_PREFS_XML = (
 
 
 # Ran by init via `exec -- /system/bin/sh /system/etc/heliboard/seed.sh` on
-# every boot. Idempotent: only copies the seed prefs when no prefs file
-# exists, so user customizations on later boots are not clobbered.
+# every boot. Idempotent: only copies the seed prefs / sets default IME when
+# the state isn't already what we want, so user customizations on later boots
+# are not clobbered.
+#
+# Why we set the default IME here (not from init.rc): when init runs `ime set`
+# on `sys.boot_completed=1`, IMMS is still in its initial package-scan
+# reconcile and overwrites Settings.Secure.default_input_method back to the
+# stock keyboard moments later. By doing the set in user space — after
+# polling `ime list -s -a` for HeliBoard's presence (an authoritative IMMS
+# readiness signal) — we land after the reconcile completes, so the value
+# sticks. A small verify/retry loop catches any later reconcile pass.
 _SEED_SH = """#!/system/bin/sh
 PKG=helium314.keyboard
+IME_ID=helium314.keyboard/.latin.LatinIME
 APK=/system/etc/heliboard/heliboard.apk
 SEED=/system/etc/heliboard/seed_prefs.xml
 PREFS_DIR=/data/user_de/0/$PKG/shared_prefs
 PREFS=$PREFS_DIR/${PKG}_preferences.xml
 
-# Install APK on first boot
+# 1) Install APK on first boot
 if [ ! -e /data/data/$PKG ]; then
     pm install -g $APK
 fi
 
-# Wait for package data dir (pm install creates it)
+# 2) Wait for package data dir (pm install creates it)
 i=0
 while [ $i -lt 8 ] && [ ! -d /data/user_de/0/$PKG ]; do
     sleep 1
     i=$((i+1))
 done
 
-# Seed enabled_subtypes only on a truly fresh install. Once HeliBoard has
+# 3) Seed enabled_subtypes only on a truly fresh install. Once HeliBoard has
 # written its own prefs file, we never overwrite — user choices stick.
 if [ -d /data/user_de/0/$PKG ] && [ ! -e $PREFS ]; then
     mkdir -p $PREFS_DIR
@@ -64,6 +74,34 @@ if [ -d /data/user_de/0/$PKG ] && [ ! -e $PREFS ]; then
     # Fix SELinux labels so HeliBoard can read the file under its own context
     restorecon -R $PREFS_DIR 2>/dev/null
 fi
+
+# 4) Wait for IMMS to know about HeliBoard. `ime list -s -a` returns IDs of
+# every available IME; once HeliBoard appears, IMMS has indexed it and is
+# ready for default-IME changes to stick.
+i=0
+while [ $i -lt 60 ]; do
+    if ime list -s -a 2>/dev/null | grep -q "^$IME_ID\\$"; then
+        break
+    fi
+    sleep 1
+    i=$((i+1))
+done
+
+# 5) Enable HeliBoard (idempotent — no-op if already enabled).
+ime enable $IME_ID
+
+# 6) Make HeliBoard the default IME, with verify/retry to defeat any late
+# IMMS reconcile pass that would revert it. ~30s budget total.
+i=0
+while [ $i -lt 15 ]; do
+    cur=$(settings get secure default_input_method 2>/dev/null | tr -d '\\r\\n')
+    if [ "$cur" = "$IME_ID" ]; then
+        break
+    fi
+    ime set $IME_ID
+    sleep 2
+    i=$((i+1))
+done
 """
 
 
@@ -97,11 +135,12 @@ class HeliBoard(General):
     PACKAGE = "helium314.keyboard"
     IME_ID = "helium314.keyboard/.latin.LatinIME"
 
-    init_rc_content = f"""
+    # init.rc does the bare minimum: kick off seed.sh post-boot. All the
+    # IMMS-sensitive work (enable + set default) happens inside seed.sh
+    # in user space, after IMMS is ready.
+    init_rc_content = """
 on property:sys.boot_completed=1
     exec -- /system/bin/sh /system/etc/heliboard/seed.sh
-    exec -- /system/bin/ime enable {IME_ID}
-    exec -- /system/bin/ime set {IME_ID}
 """
 
     def download(self):
