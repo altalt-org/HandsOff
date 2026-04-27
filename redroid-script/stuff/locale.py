@@ -30,9 +30,15 @@ on property:sys.boot_completed=1
         means Korean appears in the language list from boot 0 — without a
         reboot. Without it, locale.rc's setprop fires too late: SystemServer
         has already cached its locale list before sys.boot_completed=1.
+
+        The redroid base image has no /bin/sh, so we can't use Docker's
+        default RUN shell wrapper. Use JSON exec form to invoke Android's
+        own /system/bin/sh (mksh) directly. This must run AFTER the
+        symlink-fixer step so /etc → /system/etc resolves.
         """
         return (
-            f"RUN echo 'ro.product.locales={self.locales}' >> /system/build.prop\n"
+            'RUN ["/system/bin/sh", "-c", '
+            f'"echo ro.product.locales={self.locales} >> /system/build.prop"]\n'
         )
 
     def install(self):
