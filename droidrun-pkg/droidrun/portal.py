@@ -349,15 +349,19 @@ async def toggle_overlay(device: AdbDevice, visible: bool):
 
 async def setup_keyboard(device: AdbDevice):
     """
-    Set up the Droidrun keyboard as the default input method.
-    Simple setup that just switches to Droidrun keyboard without saving/restoring.
+    Ensure the Droidrun keyboard IME is enabled (selectable), but do NOT make
+    it the default. The default IME is whatever the device image ships with
+    (e.g. HeliBoard), so human typing through ws-scrcpy or direct touch lands
+    on a multilingual keyboard.
+
+    The server swaps to DroidrunKeyboardIME transactionally for agent
+    `input_text` calls — see ``server/ime.py``.
 
     throws:
-        Exception: If the keyboard setup fails
+        Exception: If the keyboard enable fails
     """
     try:
         await device.shell("ime enable com.droidrun.portal/.input.DroidrunKeyboardIME")
-        await device.shell("ime set com.droidrun.portal/.input.DroidrunKeyboardIME")
     except Exception as e:
         raise Exception("Error setting up keyboard") from e
 

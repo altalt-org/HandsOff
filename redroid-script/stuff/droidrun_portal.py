@@ -14,14 +14,18 @@ class DroidrunPortal(General):
 
     # Store APK in the image and install as a regular user app on first boot
     # using pm install -g (grants all runtime permissions), same pattern as Magisk.
-    # Then enable the accessibility service and custom keyboard IME.
+    # Then enable the accessibility service and the keyboard IME.
+    #
+    # The keyboard IME is enabled but NOT made default — HeliBoard (or whatever
+    # multilingual IME is bundled) handles human typing. The server swaps to
+    # DroidrunKeyboardIME transactionally for agent input_text calls and
+    # restores the prior IME afterwards.
     init_rc_content = """
 on property:sys.boot_completed=1
     exec -- /system/bin/sh -c "if [ ! -e /data/data/com.droidrun.portal ] ; then pm install -g /system/etc/droidrun/droidrun-portal.apk ; fi"
     exec -- /system/bin/settings put secure enabled_accessibility_services com.droidrun.portal/com.droidrun.portal.service.DroidrunAccessibilityService
     exec -- /system/bin/settings put secure accessibility_enabled 1
     exec -- /system/bin/ime enable com.droidrun.portal/.input.DroidrunKeyboardIME
-    exec -- /system/bin/ime set com.droidrun.portal/.input.DroidrunKeyboardIME
 """
 
     def download(self):

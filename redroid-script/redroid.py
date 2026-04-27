@@ -11,6 +11,7 @@ from stuff.houdini_hack import Houdini_Hack
 from stuff.widevine import Widevine
 from stuff.lawnchair import Lawnchair
 from stuff.droidrun_portal import DroidrunPortal
+from stuff.heliboard import HeliBoard
 from stuff.skip_setup import SkipSetup
 from stuff.locale import Locale
 import tools.helper as helper
@@ -58,6 +59,9 @@ def main():
                         action='store_true')
     parser.add_argument('-dp', '--install-droidrun-portal', dest='droidrun_portal',
                         help='Install DroidRun Portal for AI agent control',
+                        action='store_true')
+    parser.add_argument('-hb', '--install-heliboard', dest='heliboard',
+                        help='Install HeliBoard as default multilingual IME',
                         action='store_true')
     parser.add_argument('-ss', '--skip-setup', dest='skip_setup',
                         help='Skip Android setup wizard on first boot',
@@ -148,6 +152,10 @@ def main():
         DroidrunPortal().install()
         dockerfile = dockerfile+"COPY droidrun_portal /\n"
         tags.append("droidrun_portal")
+    if args.heliboard:
+        HeliBoard().install()
+        dockerfile = dockerfile+"COPY heliboard /\n"
+        tags.append("heliboard")
     if args.skip_setup:
         SkipSetup().install()
         dockerfile = dockerfile+"COPY skip_setup /\n"

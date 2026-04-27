@@ -7,6 +7,7 @@ import asyncio
 from mcp.server.fastmcp import FastMCP
 
 from ..device import DeviceManager
+from ..ime import droidrun_ime_active
 
 
 def register(mcp: FastMCP, dm: DeviceManager) -> None:
@@ -81,7 +82,12 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
             except ValueError as e:
                 return f"Error focusing element: {e}"
 
-        success = await driver.input_text(text, clear)
+        # DroidrunKeyboardIME's commitText requires it to be the active IME.
+        # The device's default IME is HeliBoard (multilingual) so human typing
+        # via ws-scrcpy works; we transactionally swap to Droidrun for the
+        # commit and restore HeliBoard afterwards.
+        async with droidrun_ime_active(dm):
+            success = await driver.input_text(text, clear)
         if success:
             return f"Typed text into element {index} (clear={clear})"
         return "Failed to type text: input failed"
