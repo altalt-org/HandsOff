@@ -22,24 +22,22 @@ on property:sys.boot_completed=1
     exec -- /system/bin/setprop persist.sys.locales {self.locales}
 """
 
-    def dockerfile_extras(self):
-        """Dockerfile snippet to append ro.product.locales to /system/build.prop.
-
-        Init reads build.prop on early boot to compose the system locale list
-        (LocalePicker → Settings UI's Languages screen). Writing this here
-        means Korean appears in the language list from boot 0 — without a
-        reboot. Without it, locale.rc's setprop fires too late: SystemServer
-        has already cached its locale list before sys.boot_completed=1.
-
-        The redroid base image has no /bin/sh, so we can't use Docker's
-        default RUN shell wrapper. Use JSON exec form to invoke Android's
-        own /system/bin/sh (mksh) directly. This must run AFTER the
-        symlink-fixer step so /etc → /system/etc resolves.
-        """
-        return (
-            'RUN ["/system/bin/sh", "-c", '
-            f'"echo ro.product.locales={self.locales} >> /system/build.prop"]\n'
-        )
+    @property
+    def build_prop_fragment(self):
+        # Init reads build.prop on early boot to compose the system locale list
+        # (LocalePicker → Settings UI's Languages screen). Writing
+        # ro.product.locales here means Korean appears in the language list
+        # from boot 0 — without a reboot. Without it, locale.rc's setprop
+        # fires too late: SystemServer has already cached its locale list
+        # before sys.boot_completed=1.
+        #
+        # The fragment is staged at /tmp/build_prop_extra (via COPY locale /).
+        # The unified symlink-fixer Go binary in redroid.py reads this file at
+        # build time and appends to /system/build.prop. We use that route
+        # because the redroid base image has no runnable shell (no /bin/sh,
+        # and /system/bin/sh needs the bionic dynamic linker which fails in a
+        # buildkit container) — only static Go binaries work.
+        return f"ro.product.locales={self.locales}\n"
 
     def install(self):
         if os.path.exists(self.copy_dir):
@@ -51,4 +49,15 @@ on property:sys.boot_completed=1
         with open(init_rc_path, "w") as f:
             f.write(self.init_rc_content)
         os.chmod(init_rc_path, 0o644)
+
+        # Stage the build.prop fragment under tmp/ — `COPY locale /` lands it
+        # at /tmp/build_prop_extra, where the symlink-fixer Go binary will
+        # find it and append to /system/build.prop.
+        tmp_dir = os.path.join(self.copy_dir, "tmp")
+        os.makedirs(tmp_dir, exist_ok=True)
+        fragment_path = os.path.join(tmp_dir, "build_prop_extra")
+        with open(fragment_path, "w") as f:
+            f.write(self.build_prop_fragment)
+        os.chmod(fragment_path, 0o644)
+
         print_color(f"Locale configured: {self.locales}", bcolors.GREEN)

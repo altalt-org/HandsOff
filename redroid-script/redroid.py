@@ -83,21 +83,38 @@ def main():
     # Android base image. containerd 2.2+ (Go 1.24 openat2) rejects absolute symlinks
     # in container rootfs.
     # Strategy: compile a CGO_ENABLED=0 Go binary (truly static, no PT_INTERP) that
-    # replaces /etc with a relative symlink. Static Go binaries run on any Linux ARM64
-    # kernel regardless of libc — unlike Alpine busybox (musl dynamic) which fails.
+    # (a) replaces /etc with a relative symlink, and (b) optionally appends a staged
+    # /tmp/build_prop_extra fragment to /system/build.prop. Static Go binaries run on
+    # any Linux ARM64 kernel regardless of libc — unlike Alpine busybox (musl dynamic)
+    # which fails, or Android's /system/bin/sh which needs the bionic linker.
+    # We RUN this binary as the LAST Dockerfile step (after all COPYs), so any staged
+    # build.prop fragment from e.g. the locale module is in place when it runs.
     # Ref: https://github.com/containerd/containerd/issues/12683
+    go_src = (
+        'package main\\n'
+        'import ("io"; "os")\\n'
+        'func main() { '
+        'os.Remove("/etc"); '
+        'os.Symlink("system/etc", "/etc"); '
+        'src, err := os.Open("/tmp/build_prop_extra"); '
+        'if err != nil { return }; '
+        'defer src.Close(); '
+        'dst, err := os.OpenFile("/system/build.prop", os.O_APPEND|os.O_WRONLY, 0644); '
+        'if err != nil { return }; '
+        'defer dst.Close(); '
+        'io.Copy(dst, src) '
+        '}'
+    )
     dockerfile = dockerfile + \
         "FROM golang:1.23-alpine AS symlink-fixer\n"
     dockerfile = dockerfile + \
-        'RUN printf \'package main\\nimport "os"\\nfunc main() { os.Remove("/etc"); os.Symlink("system/etc", "/etc") }\' > /fix.go && ' \
-        'CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /symlink-fix /fix.go\n'
+        f"RUN printf '{go_src}' > /fix.go && " \
+        "CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o /symlink-fix /fix.go\n"
     dockerfile = dockerfile + \
         "FROM redroid/redroid:{}-latest\n".format(
             args.android)
     dockerfile = dockerfile + \
         "COPY --from=symlink-fixer /symlink-fix /tmp/symlink-fix\n"
-    dockerfile = dockerfile + \
-        'RUN ["/tmp/symlink-fix"]\n'
     tags.append(args.android)
     if args.gapps:
         if args.android in ["11.0.0"]:
@@ -163,7 +180,9 @@ def main():
         loc = Locale(args.locale)
         loc.install()
         dockerfile = dockerfile+"COPY locale /\n"
-        dockerfile = dockerfile+loc.dockerfile_extras()
+    # Run symlink-fix + build.prop append AFTER all COPYs so any staged
+    # /tmp/build_prop_extra fragment (e.g. from the locale module) is in place.
+    dockerfile = dockerfile + 'RUN ["/tmp/symlink-fix"]\n'
     if args.props:
         dockerfile = dockerfile + 'CMD [{}]\n'.format(
             ", ".join('"{}"'.format(p) for p in args.props)
