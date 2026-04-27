@@ -13,31 +13,42 @@ class Locale:
     def init_rc_content(self):
         # Belt-and-suspenders: persist the locale chain into /data so future
         # boots (where /data overrides build.prop defaults) keep the list.
-        # The primary mechanism — ro.product.locales in build.prop — is
-        # injected via dockerfile_extras() below.
+        # `persist.sys.locale` accepts a comma-separated language-tag list —
+        # `LocaleList.forLanguageTags()` parses it directly. We write the
+        # full list here, not just the first element. There is no
+        # `persist.sys.locales` (plural) property in Android; previous
+        # versions of this file wrote it but nothing reads it.
         return f"""
 on property:sys.boot_completed=1
     exec -- /system/bin/settings put system system_locales {self.locales}
-    exec -- /system/bin/setprop persist.sys.locale {self.locales.split(',')[0]}
-    exec -- /system/bin/setprop persist.sys.locales {self.locales}
+    exec -- /system/bin/setprop persist.sys.locale {self.locales}
 """
 
     @property
     def build_prop_fragment(self):
         # Init reads build.prop on early boot to compose the system locale list
-        # (LocalePicker → Settings UI's Languages screen). Writing
-        # ro.product.locales here means Korean appears in the language list
-        # from boot 0 — without a reboot. Without it, locale.rc's setprop
-        # fires too late: SystemServer has already cached its locale list
-        # before sys.boot_completed=1.
+        # (LocalePicker → Settings UI's Languages screen). Writing both keys
+        # here means the full list lands in Configuration before SystemServer
+        # initializes the LocaleStore — Korean appears in the language list
+        # from boot 0 without a reboot.
+        #
+        # `ro.product.locale` (singular) is the key SystemServer actually
+        # reads to seed the initial LocaleList; the redroid base ships it as
+        # `en-US`, which is why Settings showed only English. We override it
+        # with the full comma-separated list (LocaleList.forLanguageTags
+        # parses that directly). `ro.product.locales` (plural) is also read
+        # by some boot paths — keep both so the chain is consistent.
         #
         # The fragment is staged at /tmp/build_prop_extra (via COPY locale /).
-        # The unified symlink-fixer Go binary in redroid.py reads this file at
-        # build time and appends to /system/build.prop. We use that route
+        # The unified symlink-fixer Go binary in redroid.py reads this file
+        # at build time and appends to /system/build.prop. We use that route
         # because the redroid base image has no runnable shell (no /bin/sh,
-        # and /system/bin/sh needs the bionic dynamic linker which fails in a
-        # buildkit container) — only static Go binaries work.
-        return f"ro.product.locales={self.locales}\n"
+        # and /system/bin/sh needs the bionic dynamic linker which fails in
+        # a buildkit container) — only static Go binaries work.
+        return (
+            f"ro.product.locale={self.locales}\n"
+            f"ro.product.locales={self.locales}\n"
+        )
 
     def install(self):
         if os.path.exists(self.copy_dir):
