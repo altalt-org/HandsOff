@@ -160,8 +160,10 @@ def main():
         SkipSetup().install()
         dockerfile = dockerfile+"COPY skip_setup /\n"
     if args.locale:
-        Locale(args.locale).install()
+        loc = Locale(args.locale)
+        loc.install()
         dockerfile = dockerfile+"COPY locale /\n"
+        dockerfile = dockerfile+loc.dockerfile_extras()
     if args.props:
         dockerfile = dockerfile + 'CMD [{}]\n'.format(
             ", ".join('"{}"'.format(p) for p in args.props)
