@@ -3,6 +3,38 @@ import shutil
 from tools.helper import bcolors, print_color
 
 
+# Pre-seed /data/system/users/0/settings_system.xml on first boot so that
+# AMS.systemReady() reads system_locales BEFORE building the initial
+# Configuration LocaleList. Without this, the `settings put system
+# system_locales ...` call (which only works after the settings provider
+# is up — i.e. on `sys.boot_completed=1`) lands AFTER systemReady, so
+# first-boot Settings → Languages shows English only and only the *second*
+# boot picks up the persisted setting.
+#
+# SettingsProvider auto-detects ABX (binary) vs plain XML on read; the
+# legacy plain-XML format below parses fine and is converted to ABX on
+# first write-back.
+_SEED_SH_TEMPLATE = """#!/system/bin/sh
+SETTINGS_XML=/data/system/users/0/settings_system.xml
+if [ -f "$SETTINGS_XML" ]; then
+    exit 0
+fi
+mkdir -p /data/system/users/0
+chown system:system /data/system /data/system/users /data/system/users/0
+chmod 0775 /data/system /data/system/users
+chmod 0700 /data/system/users/0
+cat > "$SETTINGS_XML" <<'XML'
+<?xml version='1.0' encoding='utf-8'?>
+<settings version="1">
+    <setting id="1" name="system_locales" value="{locales}" package="android" />
+</settings>
+XML
+chown system:system "$SETTINGS_XML"
+chmod 0600 "$SETTINGS_XML"
+restorecon -R /data/system/users 2>/dev/null
+"""
+
+
 class Locale:
     copy_dir = "./locale"
 
@@ -11,14 +43,19 @@ class Locale:
 
     @property
     def init_rc_content(self):
-        # Belt-and-suspenders: persist the locale chain into /data so future
-        # boots (where /data overrides build.prop defaults) keep the list.
-        # `persist.sys.locale` accepts a comma-separated language-tag list —
-        # `LocaleList.forLanguageTags()` parses it directly. We write the
-        # full list here, not just the first element. There is no
-        # `persist.sys.locales` (plural) property in Android; previous
-        # versions of this file wrote it but nothing reads it.
+        # First-boot pre-seed runs as soon as /data is mounted, BEFORE
+        # zygote / SystemServer start. That's the only window in which we
+        # can plant a system_locales value that AMS.systemReady() will
+        # read when it builds the initial Configuration LocaleList.
+        #
+        # The boot_completed block stays as the belt-and-suspenders
+        # idempotent path — it covers pods whose /data was provisioned by
+        # an older image (no preseed file) and keeps everything in sync
+        # on every boot.
         return f"""
+on post-fs-data
+    exec -- /system/bin/sh /system/etc/locale/seed.sh
+
 on property:sys.boot_completed=1
     exec -- /system/bin/settings put system system_locales {self.locales}
     exec -- /system/bin/setprop persist.sys.locale {self.locales}
@@ -26,27 +63,18 @@ on property:sys.boot_completed=1
 
     @property
     def build_prop_fragment(self):
-        # Init reads build.prop on early boot to compose the system locale list
-        # (LocalePicker → Settings UI's Languages screen). Writing both keys
-        # here means the full list lands in Configuration before SystemServer
-        # initializes the LocaleStore — Korean appears in the language list
-        # from boot 0 without a reboot.
-        #
-        # `ro.product.locale` (singular) is the key SystemServer actually
-        # reads to seed the initial LocaleList; the redroid base ships it as
-        # `en-US`, which is why Settings showed only English. We override it
-        # with the full comma-separated list (LocaleList.forLanguageTags
-        # parses that directly). `ro.product.locales` (plural) is also read
-        # by some boot paths — keep both so the chain is consistent.
-        #
-        # The fragment is staged at /tmp/build_prop_extra (via COPY locale /).
-        # The unified symlink-fixer Go binary in redroid.py reads this file
-        # at build time and appends to /system/build.prop. We use that route
-        # because the redroid base image has no runnable shell (no /bin/sh,
-        # and /system/bin/sh needs the bionic dynamic linker which fails in
-        # a buildkit container) — only static Go binaries work.
+        # `ro.product.locale` (singular) MUST be a single valid BCP47
+        # language tag. Earlier revisions wrote the full comma-separated
+        # list here, which Locale.forLanguageTag() can't parse — it
+        # silently dropped everything after the comma and (worse)
+        # mis-tokenized "en-US" down to a bare "en", so the runtime
+        # mGlobalConfig ended up as [en] instead of [en_US]. Use only the
+        # primary tag here; the supported list goes in
+        # `ro.product.locales` (plural), which is the field APK resource
+        # matching reads.
+        primary = self.locales.split(",")[0]
         return (
-            f"ro.product.locale={self.locales}\n"
+            f"ro.product.locale={primary}\n"
             f"ro.product.locales={self.locales}\n"
         )
 
@@ -60,6 +88,14 @@ on property:sys.boot_completed=1
         with open(init_rc_path, "w") as f:
             f.write(self.init_rc_content)
         os.chmod(init_rc_path, 0o644)
+
+        # First-boot seed script invoked from `on post-fs-data`.
+        seed_dir = os.path.join(self.copy_dir, "system", "etc", "locale")
+        os.makedirs(seed_dir, exist_ok=True)
+        seed_path = os.path.join(seed_dir, "seed.sh")
+        with open(seed_path, "w") as f:
+            f.write(_SEED_SH_TEMPLATE.format(locales=self.locales))
+        os.chmod(seed_path, 0o755)
 
         # Stage the build.prop fragment under tmp/ — `COPY locale /` lands it
         # at /tmp/build_prop_extra, where the symlink-fixer Go binary will
