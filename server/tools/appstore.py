@@ -29,7 +29,7 @@ def _download_apk(package: str, source: str, output_dir: Path) -> list[Path]:
 
     apkeep_source = _APKEEP_SOURCE_MAP[source]
     cmd = [APKEEP_BIN, "-a", package, "-d", apkeep_source, str(output_dir)]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(
             f"apkeep download failed: {result.stderr.strip() or result.stdout.strip()}"
@@ -73,7 +73,7 @@ def _install_apks(apk_files: list[Path], serial: str) -> str:
     else:
         cmd += ["install-multiple", "-r"] + [str(f) for f in apk_files]
 
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise RuntimeError(f"ADB install failed: {result.stderr.strip() or result.stdout.strip()}")
     return result.stdout.strip()
