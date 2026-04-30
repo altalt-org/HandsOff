@@ -7,7 +7,10 @@ import asyncio
 from mcp.server.fastmcp import FastMCP
 
 from ..device import DeviceManager
-from ..ime import droidrun_ime_active
+from ..ime import (
+    is_agent_keyboard_active,
+    set_agent_keyboard as _set_agent_keyboard_impl,
+)
 
 
 def register(mcp: FastMCP, dm: DeviceManager) -> None:
@@ -71,7 +74,19 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
     async def type_text(text: str, index: int, clear: bool = False) -> str:
         """Type text into a UI input field. Specify the element index to focus
         the field before typing. Set clear=true to clear existing text first
-        (recommended for URL bars, search fields, or when replacing text)."""
+        (recommended for URL bars, search fields, or when replacing text).
+
+        REQUIRES the agent keyboard to be active. Call
+        `set_agent_keyboard(active=True)` at the start of your interaction
+        session, and `set_agent_keyboard(active=False)` when done."""
+        if not await is_agent_keyboard_active(dm):
+            return (
+                "Error: agent keyboard is not active. Call "
+                "`set_agent_keyboard(active=True)` first, then retry. "
+                "Without the agent keyboard active, typing fails and the "
+                "on-screen keyboard blocks UI elements."
+            )
+
         ui = await dm.current_ui()
         driver, _ = await dm.ensure_ready()
 
@@ -82,15 +97,30 @@ def register(mcp: FastMCP, dm: DeviceManager) -> None:
             except ValueError as e:
                 return f"Error focusing element: {e}"
 
-        # DroidrunKeyboardIME's commitText requires it to be the active IME.
-        # The device's default IME is HeliBoard (multilingual) so human typing
-        # via ws-scrcpy works; we transactionally swap to Droidrun for the
-        # commit and restore HeliBoard afterwards.
-        async with droidrun_ime_active(dm):
-            success = await driver.input_text(text, clear)
+        success = await driver.input_text(text, clear)
         if success:
             return f"Typed text into element {index} (clear={clear})"
         return "Failed to type text: input failed"
+
+    @mcp.tool()
+    async def set_agent_keyboard(active: bool) -> str:
+        """Toggle the agent keyboard (an invisible IME used for programmatic
+        text input).
+
+        Turn it ON at the start of an interaction session. While active:
+          - typing via `type_text` works
+          - the on-screen keyboard does NOT pop up when input fields are
+            focused, so it never blocks clicks on UI elements behind it
+
+        Turn it OFF when:
+          - you finish your interaction session
+          - you need the human user to type (e.g. via ws-scrcpy) — they
+            need the regular on-screen keyboard
+
+        Idempotent: calling with the current state returns a clear message
+        and makes no change."""
+        result = await _set_agent_keyboard_impl(dm, active)
+        return result.message
 
     @mcp.tool()
     async def swipe(

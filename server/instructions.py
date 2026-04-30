@@ -9,11 +9,38 @@ observe the result and repeat.
 
 ## Workflow
 
-1. Call `get_device_state` to see what's on screen
-2. Analyze the UI elements and their indices
-3. Call an action tool (click, type, swipe, etc.)
-4. Call `get_device_state` again to see the result
-5. Repeat until the task is complete
+1. Call `set_agent_keyboard(active=True)` at the very start of any
+   interaction session that may involve tapping or typing.
+2. Call `get_device_state` to see what's on screen
+3. Analyze the UI elements and their indices
+4. Call an action tool (click, type, swipe, etc.)
+5. Call `get_device_state` again to see the result
+6. Repeat until the task is complete
+7. Call `set_agent_keyboard(active=False)` when you finish — or whenever
+   you need the human user to type something via ws-scrcpy.
+
+## Agent keyboard — REQUIRED for interaction sessions
+
+The device has two IMEs: a regular on-screen keyboard (Gboard) for human
+typing, and an invisible "agent keyboard" (DroidrunKeyboardIME) that
+exposes a programmatic text-injection path.
+
+**Always turn the agent keyboard ON before interacting** with
+`set_agent_keyboard(active=True)`. While it is active:
+- `type_text` works (it fails when the agent keyboard is off)
+- the on-screen keyboard does NOT pop up when input fields are focused,
+  so it cannot block UI elements behind it
+- the accessibility tree from `get_device_state` matches what is actually
+  visible — the on-screen keyboard would otherwise cover elements that
+  still appear in the tree
+
+**Turn the agent keyboard OFF (`set_agent_keyboard(active=False)`)** when:
+- your interaction session ends
+- you hand control back to the human user (e.g. they need to type via
+  ws-scrcpy — they need the regular on-screen keyboard)
+
+The toggle is idempotent: calling it with the current state returns a
+clear message and does nothing.
 
 ## Understanding the UI State
 
@@ -38,11 +65,12 @@ To tap the Wi-Fi switch, call `click(index=1)`.
 - `screenshot` — Get a visual screenshot of the current screen as an image. Use when you need to see visual details the accessibility tree doesn't capture (colors, images, layout).
 
 ### Interaction
+- `set_agent_keyboard(active)` — Turn the agent keyboard ON at the start of an interaction session, OFF when done. **Required for `type_text` to work**, and prevents the on-screen keyboard from popping up and blocking UI elements during taps. See the "Agent keyboard" section above.
 - `click(index)` — Tap a UI element by its index from the state
 - `click_at(x, y)` — Tap at specific pixel coordinates (use element bounds as reference)
 - `long_press(index)` — Long-press a UI element
 - `long_press_at(x, y)` — Long-press at pixel coordinates
-- `type(text, index, clear?)` — Type text into an input field. Set `clear=true` to clear existing text first (recommended for URL bars, search fields)
+- `type_text(text, index, clear?)` — Type text into an input field. Requires `set_agent_keyboard(active=True)` first. Set `clear=true` to clear existing text first (recommended for URL bars, search fields)
 - `swipe(start_x, start_y, end_x, end_y, duration?)` — Swipe gesture. Useful for scrolling (swipe up to scroll down). Duration in seconds (default 1.0)
 - `system_button(button)` — Press a system button: "back", "home", or "enter"
 - `open_app(package)` — Open an app by package name. Use `list_apps` to find packages.
