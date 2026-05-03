@@ -14,6 +14,7 @@ from stuff.droidrun_portal import DroidrunPortal
 from stuff.gboard import Gboard
 from stuff.skip_setup import SkipSetup
 from stuff.locale import Locale
+from stuff.gms_perms import GmsPerms
 import tools.helper as helper
 import subprocess
 
@@ -69,6 +70,11 @@ def main():
     parser.add_argument('-loc', '--locale', dest='locale',
                         help='Set system locales (comma-separated, e.g. en-US,ko-KR)',
                         default=None)
+    parser.add_argument('-gp', '--install-gms-perms', dest='gms_perms',
+                        help='Pre-grant SMS permissions to com.google.android.gms on first boot '
+                             '(needed alongside MindTheGapps so the SMS Retriever User Consent '
+                             'flow does not pop a permission dialog at the user)',
+                        action='store_true')
     parser.add_argument('-p', '--prop', dest='props',
                         help='Set a system property (ro.foo=bar), can be repeated',
                         action='append', default=[])
@@ -180,6 +186,10 @@ def main():
         loc = Locale(args.locale)
         loc.install()
         dockerfile = dockerfile+"COPY locale /\n"
+    if args.gms_perms:
+        GmsPerms().install()
+        dockerfile = dockerfile+"COPY gms_perms /\n"
+        tags.append("gms_perms")
     # Run symlink-fix + build.prop append AFTER all COPYs so any staged
     # /tmp/build_prop_extra fragment (e.g. from the locale module) is in place.
     dockerfile = dockerfile + 'RUN ["/tmp/symlink-fix"]\n'
