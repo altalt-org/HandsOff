@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import zipfile
 
 from tools.helper import bcolors, get_download_dir, print_color
 
@@ -81,7 +82,13 @@ class Gboard:
         "com.android.inputmethod.latin.LatinIME"
     )
 
+    # apkeep used to write `<package>.apk`; APKPure has since switched to
+    # serving an XAPK (zip-of-base+splits), so apkeep 0.18 now writes
+    # `<package>.xapk` instead.  We accept either suffix and unwrap the
+    # XAPK to its `base.apk` payload.  `dl_file_name` is the path of the
+    # plain APK we ultimately copy into the image.
     dl_file_name = os.path.join(download_loc, f"{PACKAGE}.apk")
+    dl_xapk_name = os.path.join(download_loc, f"{PACKAGE}.xapk")
     copy_dir = "./gboard"
 
     init_rc_content = """
@@ -90,11 +97,17 @@ on property:sys.boot_completed=1
 """
 
     def download(self):
-        """Fetch latest Gboard APK via apkeep from APKPure.
+        """Fetch latest Gboard APK (or XAPK bundle) via apkeep from APKPure.
 
         apkeep handles APKPure's URL-signing scheme; pinning a direct URL
-        won't work because their links expire. Cached locally between
+        won't work because their links expire.  Cached locally between
         builds; re-downloaded only if missing.
+
+        APKPure now ships split-APK bundles as XAPK (a zip of base.apk +
+        config.*.apk + manifest.json), so apkeep writes
+        `<package>.xapk`.  If we get an XAPK we unwrap it to `base.apk`
+        renamed as `<package>.apk` so the rest of the pipeline keeps
+        working with a plain APK.
         """
         if os.path.exists(self.dl_file_name):
             print_color(
@@ -114,10 +127,50 @@ on property:sys.boot_completed=1
             ],
             check=True,
         )
-        if not os.path.exists(self.dl_file_name):
-            raise FileNotFoundError(
-                f"apkeep did not produce {self.dl_file_name}"
+
+        # apkeep may have written either <pkg>.apk or <pkg>.xapk.
+        if os.path.exists(self.dl_file_name):
+            return
+        if os.path.exists(self.dl_xapk_name):
+            self._extract_base_apk_from_xapk()
+            return
+
+        raise FileNotFoundError(
+            f"apkeep did not produce {self.dl_file_name} or "
+            f"{self.dl_xapk_name}"
+        )
+
+    def _extract_base_apk_from_xapk(self):
+        """Unwrap the base APK out of an XAPK bundle.
+
+        XAPK is a zip with at least a `base.apk` (the main APK), plus
+        zero or more `config.*.apk` density / ABI / locale splits and a
+        `manifest.json` describing them.  We only need `base.apk` —
+        installing splits via `pm install` requires multi-session
+        installs which the redroid first-boot seed.sh keeps simple by
+        not supporting.  Density/ABI splits are not strictly needed
+        for Gboard to function.
+        """
+        print_color(
+            f"Unwrapping XAPK at {self.dl_xapk_name} → base.apk",
+            bcolors.GREEN,
+        )
+        with zipfile.ZipFile(self.dl_xapk_name, "r") as zf:
+            base_member = next(
+                (n for n in zf.namelist() if os.path.basename(n) == "base.apk"),
+                None,
             )
+            if base_member is None:
+                raise FileNotFoundError(
+                    f"XAPK {self.dl_xapk_name} contains no base.apk; "
+                    f"members: {zf.namelist()}"
+                )
+            with zf.open(base_member) as src, open(self.dl_file_name, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        print_color(
+            f"Wrote {self.dl_file_name} from XAPK",
+            bcolors.GREEN,
+        )
 
     def extract(self):
         # APK doesn't need extraction
