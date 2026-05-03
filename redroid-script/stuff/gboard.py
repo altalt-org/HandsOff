@@ -143,32 +143,43 @@ on property:sys.boot_completed=1
     def _extract_base_apk_from_xapk(self):
         """Unwrap the base APK out of an XAPK bundle.
 
-        XAPK is a zip with at least a `base.apk` (the main APK), plus
-        zero or more `config.*.apk` density / ABI / locale splits and a
-        `manifest.json` describing them.  We only need `base.apk` —
-        installing splits via `pm install` requires multi-session
-        installs which the redroid first-boot seed.sh keeps simple by
-        not supporting.  Density/ABI splits are not strictly needed
-        for Gboard to function.
+        XAPK is a zip with at least the main APK, plus zero or more
+        `config.*.apk` density / ABI / locale splits, an `icon.png`, and
+        a `manifest.json` describing them.  We only want the main APK —
+        installing splits via `pm install` would require a multi-session
+        install which the on-device first-boot seed.sh keeps simple by
+        not supporting; density / ABI / locale splits are not strictly
+        needed for Gboard to function.
+
+        APKPure's XAPK convention: the base APK is named `<package>.apk`
+        (e.g. `com.google.android.inputmethod.latin.apk`), splits are
+        `config.<qualifier>.apk`.  We pick the first APK whose basename
+        does NOT start with `config.` as the base.
         """
         print_color(
-            f"Unwrapping XAPK at {self.dl_xapk_name} → base.apk",
+            f"Unwrapping XAPK at {self.dl_xapk_name} → base APK",
             bcolors.GREEN,
         )
         with zipfile.ZipFile(self.dl_xapk_name, "r") as zf:
+            members = zf.namelist()
             base_member = next(
-                (n for n in zf.namelist() if os.path.basename(n) == "base.apk"),
+                (
+                    n
+                    for n in members
+                    if n.lower().endswith(".apk")
+                    and not os.path.basename(n).lower().startswith("config.")
+                ),
                 None,
             )
             if base_member is None:
                 raise FileNotFoundError(
-                    f"XAPK {self.dl_xapk_name} contains no base.apk; "
-                    f"members: {zf.namelist()}"
+                    f"XAPK {self.dl_xapk_name} contains no base APK; "
+                    f"members: {members}"
                 )
             with zf.open(base_member) as src, open(self.dl_file_name, "wb") as dst:
                 shutil.copyfileobj(src, dst)
         print_color(
-            f"Wrote {self.dl_file_name} from XAPK",
+            f"Wrote {self.dl_file_name} from XAPK (base member: {base_member})",
             bcolors.GREEN,
         )
 
