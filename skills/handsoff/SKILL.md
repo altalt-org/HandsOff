@@ -28,3 +28,7 @@ These files are NOT loaded into context up front. Read the matching one only whe
 | [`references/kakaotalk-iris.md`](references/kakaotalk-iris.md) | User asks to install KakaoTalk + Iris bot framework on a HandsOff device, expose Iris through the reverse proxy, or verify an Iris install is healthy. Stops at "Iris is reachable and authenticated" — does not document Iris endpoint usage. |
 
 When you decide a reference is in scope, read the whole file before acting on it. Don't quote excerpts from memory.
+
+---
+
+Contributing a new reference? See [CONTRIBUTING.md](CONTRIBUTING.md) and use the [`add-skill-reference` PR template](../../.github/PULL_REQUEST_TEMPLATE/add-skill-reference.md).
