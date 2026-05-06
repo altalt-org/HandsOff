@@ -58,6 +58,15 @@ You can watch the device live at `http://<tailscale-ip>:8080` in your browser. P
 
 Ask your agent to tear it down when you're done, then remove the machine from your Tailscale admin console.
 
+## Contributing a new skill
+
+If you build a workflow on top of HandsOff that other users would benefit from — installing a specific app, exposing a service, configuring a regional setup — contribute it as a **reference** under the bundled `handsoff` skill.
+
+1. Read [`skills/handsoff/CONTRIBUTING.md`](skills/handsoff/CONTRIBUTING.md) to decide whether your workflow belongs as a reference under the existing skill, or as a brand-new top-level skill.
+2. Add your `.md` file under `skills/handsoff/references/` (no YAML frontmatter — that's reserved for `SKILL.md`) and register it in the routing table in [`skills/handsoff/SKILL.md`](skills/handsoff/SKILL.md).
+3. Verify locally that the skill still installs as one unit: `npx skills add . --list` from the repo root should show only the `handsoff` skill.
+4. Open the PR using the **Add a skill reference** template — pick it from the GitHub template dropdown, or append `?template=add-skill-reference.md` to the PR URL. The template's checklist catches the common mistakes (stray frontmatter, vague routing triggers, leaked secrets).
+
 ## Links
 
 - [Installation Guide](docs/installation.md)
